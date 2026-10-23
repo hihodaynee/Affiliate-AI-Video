@@ -15,13 +15,17 @@ const QUICK_IMAGE_REASONS = [
   { id: 'pose_expression', label: 'Biểu cảm hoặc góc cầm sản phẩm chưa tự nhiên', promptFix: 'Authentic warm friendly smile, natural commercial posture holding the product neatly at eye-level towards the viewer.' }
 ];
 
-export const RegenerateImageModal: React.FC<RegenerateImageModalProps> = ({
+export const RegenerateImageModal: React.FC<RegenerateImageModalProps> = (props) => {
+  if (!props.isOpen || !props.scene) return null;
+  return <RegenerateImageModalContent key={props.scene.id} {...props} scene={props.scene} />;
+};
+
+const RegenerateImageModalContent: React.FC<RegenerateImageModalProps & { scene: SceneCard }> = ({
   scene,
   isOpen,
   onClose,
   onSubmit
 }) => {
-  if (!isOpen || !scene) return null;
 
   const [selectedReason, setSelectedReason] = useState<string>(QUICK_IMAGE_REASONS[0].id);
   const [customFeedback, setCustomFeedback] = useState<string>('');

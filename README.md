@@ -1,18 +1,33 @@
 # Affiliate AI Video
 
-Bản sao đầy đủ **29 tệp mã nguồn** từ tab **Mã** của công cụ Google Flow, xuất ngày **23/10/2026**.
+Bộ công cụ tạo KOC, kịch bản review và video trên Google Flow. Phiên bản 1.1 bổ sung các sửa lỗi về tham chiếu voice, tạo nội dung, ghép video và lưu dự án.
 
 - [Mở công cụ gốc trên Google Flow](https://flow.google.com/project/a2a91d8d-800e-4980-bb48-8987eccf39d8/tool/ed2a429c-065e-4aa9-907b-130f9f478b41?fromViewSource=tools&mode=EDIT).
-- Mã nguồn gồm `App.tsx`, `types.ts`, `constants.ts`, 22 component, 3 tiện ích trong `utils/` và dịch vụ `services/ffmpegService.ts`.
-- [Danh sách tệp và SHA-256](docs/source-manifest.json) dùng để kiểm tra tính toàn vẹn của bản xuất.
+- Bản xuất gốc gồm 29 tệp, được lưu tại commit [`4870e02`](https://github.com/hihodaynee/Affiliate-AI-Video/commit/4870e02c4bd3b7c29e8cea39c11aae31425fea66).
+- [Danh sách tệp và SHA-256 gốc](docs/source-manifest.json) áp dụng cho commit gốc, trước các thay đổi ở phiên bản 1.1.
+- [Các thay đổi và giới hạn kiểm chứng](docs/reliability-update.md).
 
 ## Môi trường chạy
 
-Đây là mã công cụ chạy trong Google Flow. Các tệp sử dụng React, `flow-sdk`, `@ffmpeg/util` và các lớp giao diện Tailwind CSS. Các chức năng tạo nội dung, chọn media và tải xuống gọi SDK do môi trường Flow cung cấp. Dịch vụ ghép video tải FFmpeg core 0.12.6 từ CDN.
+Đây là mã công cụ chạy trong Google Flow. Các tệp sử dụng React, Zod và các lớp giao diện Tailwind CSS. Các chức năng tạo nội dung, chọn media và tải xuống gọi `flow-sdk` do môi trường Flow cung cấp. Dịch vụ ghép video tải FFmpeg core 0.12.6 từ CDN.
 
-Tab Mã của Flow không cung cấp `package.json`, lockfile, HTML khởi động, cấu hình bundler hay phần triển khai `flow-sdk`. Vì vậy bản sao này chưa có lệnh `npm install` / `npm run dev` để chạy độc lập; cần tích hợp môi trường và SDK tương ứng trước. Toàn bộ 29 tệp được giữ nguyên nội dung từ Flow, bao gồm các component cũ còn xuất hiện trong danh sách tệp.
+Repository có `package.json`, lockfile và cấu hình kiểm tra TypeScript/test. Phần triển khai `flow-sdk` và môi trường giao diện vẫn do Flow cung cấp; repository chưa có máy chủ chạy độc lập. `declarations/flow-sdk.d.ts` chỉ mô tả các lời gọi đang dùng, không phải SDK thực tế. Bộ mock SDK chỉ được ánh xạ trong Vitest.
+
+Với Node.js 24, chạy:
+
+```sh
+npm ci
+npm run typecheck
+npm test
+```
+
+Khi tích hợp trở lại Flow, cần cung cấp các dependency trong `package.json`, stylesheet Tailwind và font Material Symbols của ứng dụng gốc. Việc upload âm thanh còn phụ thuộc khả năng của SDK tại thời điểm chạy; nếu Flow từ chối tệp, giao diện báo lỗi và không đánh dấu voice là đã nạp.
+
+Dự án review được lưu tự động vào IndexedDB trên trình duyệt sau khoảng 1 giây không chỉnh sửa. Xuất JSON để giữ bản sao đầy đủ cấu hình, tư liệu đầu vào và media của các cảnh. Không dùng Blob URL tạm để khôi phục preview. Lịch sử toàn cục, trạng thái KOC và bảng Motion Cloner chưa được đưa vào bản lưu review.
 
 ## Tài liệu workflow hiện có
+
+Phần bên dưới là báo cáo workflow đi kèm bản xuất gốc. Những mô tả về fallback và mức độ bảo đảm kết quả cần đọc cùng ghi chú phiên bản 1.1 ở trên.
 
 Báo cáo này được cấu trúc theo luồng vận hành thực tế từ đầu vào đến sản phẩm hoàn chỉnh, giúp bạn nắm rõ quy trình kỹ thuật, logic đồng bộ và cách từng module phối hợp với nhau.
 

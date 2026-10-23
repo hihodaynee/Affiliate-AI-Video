@@ -1,5 +1,3 @@
-import { toBlobURL } from '@ffmpeg/util';
-
 /**
  * FFmpeg WASM service using a classic (non-module) worker.
  * Bypasses the broken FFmpeg class which uses module workers.
@@ -11,35 +9,65 @@ const MSG = {
   ERROR: 'ERROR', LOG: 'LOG', PROGRESS: 'PROGRESS',
 } as const;
 
-class FFmpegService {
+export class FFmpegService {
   private worker: Worker | null = null;
   private loaded = false;
   private msgId = 0;
+  private loadPromise: Promise<void> | null = null;
+  private loadController: AbortController | null = null;
+  private objectUrls: string[] = [];
   private callbacks = new Map<number, {
     resolve: (v: any) => void;
     reject: (e: any) => void;
+    timer: ReturnType<typeof setTimeout>;
   }>();
   private logCb: ((msg: string) => void) | null = null;
   private progressCb: ((p: { progress: number }) => void) | null = null;
 
   /** Load FFmpeg core. Call once before any other method. */
   async load(onLog?: (msg: string) => void) {
-    if (this.loaded && this.worker) return;
     this.logCb = onLog || null;
+    if (this.loaded && this.worker) return;
+    if (!this.loadPromise) {
+      this.loadController = new AbortController();
+      const controller = this.loadController;
+      const timer = setTimeout(() => controller.abort(), 120_000);
+      this.loadPromise = this.loadCore(controller.signal).catch(error => {
+        this.dispose(error instanceof Error ? error : new Error(String(error)));
+        throw error;
+      }).finally(() => { clearTimeout(timer); this.loadPromise = null; this.loadController = null; });
+    }
+    return this.loadPromise;
+  }
+
+  private async downloadCore(url: string, mimeType: string, signal: AbortSignal) {
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`Không thể tải FFmpeg (HTTP ${response.status}).`);
+    const data = await response.arrayBuffer();
+    signal.throwIfAborted();
+    const objectUrl = URL.createObjectURL(new Blob([data], { type: mimeType }));
+    this.objectUrls.push(objectUrl);
+    return objectUrl;
+  }
+
+  private async loadCore(signal: AbortSignal) {
 
     const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
 
     // Fetch core assets as blob URLs on the main thread.
-    const coreURL = await toBlobURL(
-      `${baseURL}/ffmpeg-core.js`, 'text/javascript'
+    const coreURL = await this.downloadCore(
+      `${baseURL}/ffmpeg-core.js`, 'text/javascript', signal
     );
-    const wasmURL = await toBlobURL(
-      `${baseURL}/ffmpeg-core.wasm`, 'application/wasm'
+    const wasmURL = await this.downloadCore(
+      `${baseURL}/ffmpeg-core.wasm`, 'application/wasm', signal
     );
 
     // Create a CLASSIC worker (NOT module) — skips CORS check
     const workerBlob = this.buildWorkerBlob();
+    this.objectUrls.push(workerBlob);
     this.worker = new Worker(workerBlob);
+    this.worker.onerror = () => this.dispose(new Error('FFmpeg worker bị lỗi. Hãy thử ghép lại.'));
+    this.worker.onmessageerror = () => this.dispose(new Error('Không thể đọc phản hồi FFmpeg.'));
 
     this.worker.onmessage = ({ data: { id, type, data } }) => {
       if (type === MSG.LOG) {
@@ -52,11 +80,11 @@ class FFmpegService {
       }
       if (type === MSG.ERROR) {
         const cb = this.callbacks.get(id);
-        if (cb) { this.callbacks.delete(id); cb.reject(new Error(data)); }
+        if (cb) { clearTimeout(cb.timer); this.callbacks.delete(id); cb.reject(new Error(data)); }
         return;
       }
       const cb = this.callbacks.get(id);
-      if (cb) { this.callbacks.delete(id); cb.resolve(data); }
+      if (cb) { clearTimeout(cb.timer); this.callbacks.delete(id); cb.resolve(data); }
     };
 
     await this.send(MSG.LOAD, { coreURL, wasmURL });
@@ -66,8 +94,10 @@ class FFmpegService {
   private send(type: string, data?: any): Promise<any> {
     return new Promise((resolve, reject) => {
       const id = this.msgId++;
-      this.callbacks.set(id, { resolve, reject });
-      this.worker!.postMessage({ id, type, data });
+      const timer = setTimeout(() => this.dispose(new Error('FFmpeg hết thời gian xử lý. Hãy thử với ít clip hơn.')), 185_000);
+      this.callbacks.set(id, { resolve, reject, timer });
+      try { this.worker!.postMessage({ id, type, data }); }
+      catch (error) { clearTimeout(timer); this.callbacks.delete(id); reject(error); }
     });
   }
 
@@ -170,7 +200,9 @@ self.onmessage = function(e) {
 
   async exec(args: string[]) {
     if (!this.worker) throw new Error('FFmpeg not loaded');
-    return this.send(MSG.EXEC, { args, timeout: -1 });
+    const exitCode = await this.send(MSG.EXEC, { args, timeout: 180_000 });
+    if (exitCode !== 0) throw new Error(`FFmpeg không ghép được video (mã lỗi ${exitCode}). Nếu có clip thiếu tiếng, hãy chọn chế độ Không tiếng hoặc bổ sung audio cho clip đó.`);
+    return exitCode;
   }
 
   async writeFile(name: string, data: Uint8Array | any) {
@@ -190,6 +222,20 @@ self.onmessage = function(e) {
 
   onProgress(cb: (p: { progress: number }) => void) {
     this.progressCb = cb;
+  }
+
+  dispose(reason = new Error('Đã dừng FFmpeg.')) {
+    this.loadController?.abort();
+    this.worker?.terminate();
+    this.worker = null;
+    this.loaded = false;
+    for (const callback of this.callbacks.values()) {
+      clearTimeout(callback.timer);
+      callback.reject(reason);
+    }
+    this.callbacks.clear();
+    for (const url of this.objectUrls) URL.revokeObjectURL(url);
+    this.objectUrls = [];
   }
 }
 

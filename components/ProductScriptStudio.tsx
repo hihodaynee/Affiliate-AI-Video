@@ -18,8 +18,15 @@ import {
 import { estimateSafeDuration } from '../utils/durationCalculator';
 import { sanitizePolicySafePrompt } from '../utils/promptEnhancer';
 import { Flow } from 'flow-sdk';
+import { withTimeout } from '../utils/async';
+import { getVoiceReference, mediaPreview, requireRemoteMedia } from '../utils/media';
+import { buildFallbackScenes, productContext } from '../utils/productPrompts';
+import { getMaxWordsForDuration, calculateWordCount } from '../utils/durationCalculator';
+import type { ReviewSettings } from '../types';
 
 interface ProductScriptStudioProps {
+  reviewSettings: ReviewSettings;
+  onReviewSettingsChange: React.Dispatch<React.SetStateAction<ReviewSettings>>;
   productAsset: MediaAsset | null;
   modelPersonAsset: MediaAsset | null;
   costumeAsset: MediaAsset | null;
@@ -79,6 +86,7 @@ const AUDIENCE_SUGGESTIONS = [
 ];
 
 export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
+  reviewSettings, onReviewSettingsChange,
   productAsset,
   modelPersonAsset,
   costumeAsset,
@@ -122,12 +130,12 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
   onExportJSON,
   onImportJSON
 }) => {
-  const [productAppearance, setProductAppearance] = useState<string>('');
-  const [costumeAppearance, setCostumeAppearance] = useState<string>('');
-
-  const [selectedVoiceRegion, setSelectedVoiceRegion] = useState<VoiceRegion>('south_hcm');
-  const [selectedVoiceGender, setSelectedVoiceGender] = useState<VoiceGender>('female');
-  const [customVoiceNotes, setCustomVoiceNotes] = useState<string>('');
+  const { productAppearance, costumeAppearance, selectedVoiceRegion, selectedVoiceGender, customVoiceNotes } = reviewSettings;
+  const setProductAppearance = (value: string) => onReviewSettingsChange(p => ({...p, productAppearance: value}));
+  const setCostumeAppearance = (value: string) => onReviewSettingsChange(p => ({...p, costumeAppearance: value}));
+  const setSelectedVoiceRegion = (value: VoiceRegion) => onReviewSettingsChange(p => ({...p, selectedVoiceRegion: value}));
+  const setSelectedVoiceGender = (value: VoiceGender) => onReviewSettingsChange(p => ({...p, selectedVoiceGender: value}));
+  const setCustomVoiceNotes = (value: string) => onReviewSettingsChange(p => ({...p, customVoiceNotes: value}));
 
   const [videoPostCaption, setVideoPostCaption] = useState<VideoCaptionData | null>(null);
   const [isGeneratingCaption, setIsGeneratingCaption] = useState<boolean>(false);
@@ -153,7 +161,8 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
   const [batchVideoProgress, setBatchVideoProgress] = useState<string>('');
   
   const [timeoutTracker, setTimeoutTracker] = useState<Record<number, number>>({});
-  const timeoutTimersRef = useRef<Record<number, any>>({});
+  const timeoutTimersRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+  const runningScenes = useRef(new Set<string>());
   const scenesRef = useRef<SceneCard[]>(scenes);
   scenesRef.current = scenes;
 
@@ -172,25 +181,13 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
     };
   }, []);
 
-  const startTimeoutCountdown = (sceneNumber: number, onTimeoutCancel: () => void) => {
-    const DURATION = 300;
-    setTimeoutTracker(prev => ({ ...prev, [sceneNumber]: DURATION }));
-
-    if (timeoutTimersRef.current[sceneNumber]) {
-      clearInterval(timeoutTimersRef.current[sceneNumber]);
-    }
-
+  const startTimeoutCountdown = (sceneNumber: number) => {
+    if (timeoutTimersRef.current[sceneNumber]) clearInterval(timeoutTimersRef.current[sceneNumber]);
+    const deadline = Date.now() + 300_000;
+    setTimeoutTracker(prev => ({ ...prev, [sceneNumber]: 300 }));
     timeoutTimersRef.current[sceneNumber] = setInterval(() => {
-      setTimeoutTracker(prev => {
-        const cur = prev[sceneNumber];
-        if (cur <= 1) {
-          clearInterval(timeoutTimersRef.current[sceneNumber]);
-          delete timeoutTimersRef.current[sceneNumber];
-          onTimeoutCancel();
-          return { ...prev, [sceneNumber]: 0 };
-        }
-        return { ...prev, [sceneNumber]: cur - 1 };
-      });
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setTimeoutTracker(prev => ({ ...prev, [sceneNumber]: remaining }));
     }, 1000);
   };
 
@@ -286,7 +283,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       setTimeout(() => setAutoAnalysisSuccess(false), 4000);
     } catch (err) {
       console.warn('Lỗi phân tích tự động thông tin sản phẩm:', err);
-      const fallbackHighlights = `Công thức chất lượng cao, tối ưu công năng chuyên biệt cho ${effectiveName}, mang lại trải nghiệm êm ái, tiện dụng và hiệu quả rõ nét.`;
+      const fallbackHighlights = productDescription;
       const fallbackIdentity = `Bao bì chuẩn nguyên bản của ${effectiveName}, giữ nguyên màu sắc, logo và phom dáng thiết kế.`;
       const fallbackCostume = costumeAsset 
         ? 'Trang phục chuẩn từ ảnh mẫu trang phục tham chiếu'
@@ -295,8 +292,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       onProductDescriptionChange(fallbackHighlights);
       setProductAppearance(fallbackIdentity);
       setCostumeAppearance(fallbackCostume);
-      setAutoAnalysisSuccess(true);
-      setTimeout(() => setAutoAnalysisSuccess(false), 3000);
+      setResourceAlert({type: 'warning', message: 'AI chưa phân tích được sản phẩm. Hãy nhập thông tin đã xác minh trước khi tạo kịch bản.'});
     } finally {
       setIsAnalyzingProductDetails(false);
     }
@@ -354,9 +350,9 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       setVideoPostCaption({
         title: `🔥 Chân ái ${effectiveName} đang làm mưa làm gió cõi mạng đây rồi!`,
         hookCaption: 'Mấy bà đừng lướt vội, bí kíp săn deal hời đây nè!',
-        detailedCaption: `Từ ngày biết đến ${effectiveName} thì mọi vấn đề đã được giải quyết gọn gàng. Chất lượng đỉnh chóp, hiệu quả cảm nhận ngay lần đầu sử dụng. Ai chưa thử thì tiếc hùi hụi luôn á!`,
+        detailedCaption: `Cùng tìm hiểu ${effectiveName}. Hãy xem thông tin, thông số và hướng dẫn từ nhà bán hàng để đánh giá mức độ phù hợp với nhu cầu của bạn.`,
         ctaText: 'Deal hời đang có sẵn tại giỏ hàng góc trái, nhanh tay chốt đơn kẻo hết mã giảm giá nha!',
-        hashtags: ['fyp', 'xuhuong', 'tiktokshop', 'review', 'goclamdep', 'affiliate', 'dealhot', effectiveName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()]
+        hashtags: ['fyp', 'xuhuong', 'tiktokshop', 'review', 'affiliate', 'dealhot', effectiveName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()]
       });
     } finally {
       setIsGeneratingCaption(false);
@@ -387,7 +383,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
     let effectiveCostume = costumeAppearance.trim();
 
     if (!effectiveDesc || !effectiveApp) {
-      effectiveDesc = effectiveDesc || `Dòng sản phẩm ${effectiveName} chất lượng cao, thiết kế thông minh, giải quyết triệt để nhu cầu thường ngày với hiệu quả vượt trội.`;
+      effectiveDesc = effectiveDesc || 'Chỉ sử dụng đặc điểm nhìn thấy trong ảnh; chưa có công dụng được xác minh.';
       effectiveApp = effectiveApp || `Bao bì chính hãng chuẩn của ${effectiveName}, màu sắc sắc nét, thiết kế nổi bật, logo nhận diện rõ ràng.`;
       effectiveCostume = effectiveCostume || (costumeAsset ? 'Trang phục từ ảnh mẫu trang phục đính kèm' : 'Trang phục chuẩn từ ảnh mẫu người mẫu KOC ban đầu');
 
@@ -396,12 +392,16 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       setCostumeAppearance(effectiveCostume);
     }
 
+    if (isGeneratingFullScript || runningScenes.current.size || isBatchGeneratingImages || isBatchGeneratingVideos) {
+      setResourceAlert({type: 'warning', message: 'Hãy chờ tác vụ hiện tại hoàn tất trước khi tạo kịch bản mới.'});
+      return;
+    }
     setIsGeneratingFullScript(true);
     setScriptThinkingStep('Bước 1/4: Đang đọc hiểu thông tin và phân tích tính năng sản phẩm...');
 
     try {
       const styleInfo = REVIEW_STYLES.find(s => s.id === selectedStyle);
-      const detailedVoiceSpecification = buildDetailedVoicePrompt(selectedVoiceRegion, selectedVoiceGender, selectedVoiceTone);
+      const detailedVoiceSpecification = buildDetailedVoicePrompt(selectedVoiceRegion, selectedVoiceGender, selectedVoiceTone) + ` Additional voice direction: ${customVoiceNotes}`;
 
       setScriptThinkingStep(`Bước 2/4: Phân tích nỗi đau tâm lý của nhóm khách hàng "${effectiveAudience}"...`);
       await new Promise(r => setTimeout(r, 600));
@@ -421,11 +421,11 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
         `1. Lời thoại KOC BẮT BUỘC nhắc đến trực tiếp tên "${effectiveName}" hoặc các công dụng, thành phần, cảm giác trải nghiệm thực tế của sản phẩm này.\n` +
         `2. Lời thoại phải tự nhiên, mượt mà, KHÔNG ĐƯỢC LẶP TỪ hay lặp lại các cụm từ (ví dụ không lặp "khô rát, khô rát").\n` +
         `3. ĐẶC TẢ TỪNG CẢNH RÕ RÀNG:\n` +
-        `   - Cảnh 1 (Hook - 6s): Giữ chân bằng câu hỏi gợi tò mò hoặc cú sốc vấn đề da/nhu cầu cấp bách mà "${effectiveAudience}" gặp phải (14-18 từ).\n` +
+        `   - Cảnh 1 (Hook - 6s): Giữ chân bằng câu hỏi gợi tò mò hoặc cú sốc nhu cầu thực tế mà "${effectiveAudience}" gặp phải (14-18 từ).\n` +
         `   - Cảnh 2 (Nỗi đau - 8s): Kể chi tiết sự thất vọng hoặc tốn kém khi dùng các giải pháp cũ trước đây (20-25 từ).\n` +
         `   - Cảnh 3 (Giải pháp - 8s): Giới thiệu sản phẩm xuất hiện như vị cứu tinh, chỉ ra điểm độc đáo nhất (20-25 từ).\n` +
-        `   - Cảnh 4 (Trải nghiệm - 6s): Miêu tả cảm giác thực tế khi sờ chạm, sử dụng, hiệu quả thấy ngay (18-20 từ).\n` +
-        `   - Cảnh 5 (CTA - 6s): Kêu gọi bấm vào giỏ hàng góc trái chốt đơn nhận ưu đãi/voucher giới hạn (14-18 từ).\n` +
+        `   - Cảnh 4 (Trải nghiệm - 6s): Giới thiệu cách dùng đúng ngành hàng, không tự nhận trải nghiệm hoặc hiệu quả chưa xác minh (18-20 từ).\n` +
+        `   - Cảnh 5 (CTA - 6s): Kêu gọi bấm vào giỏ hàng góc trái xem thông tin và giá hiện tại, không tự tạo ưu đãi (14-18 từ).\n` +
         `4. XƯNG HÔ ĐÚNG VÙNG MIỀN: Nếu giọng TP.HCM xưng "mình - mấy bà/mấy bạn", giọng Hà Nội xưng "mình - các bạn".\n` +
         `5. BẢO ĐẢM KHÔNG CÓ CHỮ TRÊN VIDEO: imagePrompt và videoPrompt ghi rõ "no text, no subtitles, no watermarks".\n\n` +
         `Định dạng trả về: Chỉ trả về ĐÚNG MẢNG JSON 5 object không kèm markdown:\n` +
@@ -462,17 +462,22 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       const cleaned = res.text.replace(/```json/gi, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleaned);
 
-      if (Array.isArray(parsed) && parsed.length >= 3) {
+      if (Array.isArray(parsed) && parsed.length === 5) {
         const newScenes: SceneCard[] = parsed.map((item, idx) => {
           const fallback = DEFAULT_STORYBOARD_STAGES[idx] || DEFAULT_STORYBOARD_STAGES[0];
-          const dialogueText = item.dialogue || fallback.dialogue;
+          if (!item || typeof item.dialogue !== 'string' || !item.dialogue.trim()) throw new Error('Thiếu lời thoại hợp lệ');
+          const dialogueText = item.dialogue;
+          for (const key of ['stageName', 'title', 'cameraAngle', 'moodTag', 'visualKeypoints', 'productVisualDetails', 'costumeDetails', 'actingGuide', 'imagePrompt', 'videoPrompt', 'voiceGuidance']) {
+            if (item[key] != null && typeof item[key] !== 'string') throw new Error('Sai định dạng kịch bản');
+          }
           const calculatedDuration = estimateSafeDuration(dialogueText);
           const finalDuration = (item.durationSeconds === 4 || item.durationSeconds === 6 || item.durationSeconds === 8 || item.durationSeconds === 10)
             ? Math.max(item.durationSeconds, calculatedDuration) as (4 | 6 | 8 | 10)
             : calculatedDuration;
 
-          const safeVidPrompt = sanitizePolicySafePrompt(item.videoPrompt || fallback.videoPrompt);
-          const safeImgPrompt = sanitizePolicySafePrompt(item.imagePrompt || fallback.imagePrompt);
+          const genericScene = buildFallbackScenes(effectiveName, effectiveApp, effectiveCostume)[idx];
+          const safeVidPrompt = sanitizePolicySafePrompt(item.videoPrompt || genericScene.videoPrompt);
+          const safeImgPrompt = sanitizePolicySafePrompt(item.imagePrompt || genericScene.imagePrompt);
 
           return {
             id: `scene_${Date.now()}_${idx}`,
@@ -482,11 +487,11 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
             durationSeconds: finalDuration,
             cameraAngle: item.cameraAngle || fallback.cameraAngle,
             moodTag: item.moodTag || fallback.moodTag,
-            visualKeypoints: item.visualKeypoints || fallback.visualKeypoints,
+            visualKeypoints: item.visualKeypoints || genericScene.visualKeypoints,
             productVisualDetails: item.productVisualDetails || effectiveApp,
             costumeDetails: item.costumeDetails || effectiveCostume,
             dialogue: dialogueText,
-            actingGuide: item.actingGuide || fallback.actingGuide,
+            actingGuide: item.actingGuide || genericScene.actingGuide,
             imagePrompt: safeImgPrompt,
             videoPrompt: safeVidPrompt,
             voiceGuidance: item.voiceGuidance || `${selectedVoiceRegion} - ${selectedVoiceGender}: ${dialogueText}`,
@@ -505,40 +510,11 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       }
     } catch (err: any) {
       console.warn('Lỗi sinh kịch bản AI, áp dụng kịch bản tối ưu theo tên sản phẩm:', err);
-      const smartFallbackScenes: SceneCard[] = DEFAULT_STORYBOARD_STAGES.map((s, idx) => {
-        let customDialogue = s.dialogue;
-        if (idx === 0) customDialogue = `Mấy bà dưỡng hoài mà da vẫn khô căng, bong tróc, lại còn dễ ửng đỏ đúng hôn nè?`;
-        else if (idx === 1) customDialogue = `Trước đây chưa biết đến ${effectiveName} thì việc dưỡng ẩm tốn kém mà bực bội dễ sợ luôn á.`;
-        else if (idx === 2) customDialogue = `Nhưng từ lúc kết thân với ${effectiveName} thì đúng là chân ái cuộc đời, cấp ẩm phục hồi tức thì.`;
-        else if (idx === 3) customDialogue = `Chất serum thoa lên mỏng nhẹ tênh, thấm trong ba giây mà không hề bết rít hay nặng mặt tí nào luôn á.`;
-        else if (idx === 4) customDialogue = `Deal hời của ${effectiveName} đang có sẵn tại giỏ hàng góc trái, mấy bà chốt lẹ kẻo hết nha!`;
-
-        const calculatedDuration = estimateSafeDuration(customDialogue);
-        return {
-          id: `scene_${Date.now()}_${idx}`,
-          sceneNumber: idx + 1,
-          stageName: s.stageName,
-          title: s.title,
-          durationSeconds: calculatedDuration,
-          cameraAngle: s.cameraAngle,
-          moodTag: s.moodTag,
-          visualKeypoints: s.visualKeypoints,
-          productVisualDetails: effectiveApp,
-          costumeDetails: effectiveCostume,
-          dialogue: customDialogue,
-          actingGuide: s.actingGuide,
-          imagePrompt: sanitizePolicySafePrompt(`Commercial 8k photo of creator holding skincare product, soft natural studio lighting`),
-          videoPrompt: sanitizePolicySafePrompt(`Creator demonstrating skincare product with expressive articulation, soft gentle camera push-in`),
-          voiceGuidance: `${selectedVoiceRegion} - ${selectedVoiceGender}: ${customDialogue}`,
-          generatedImage: null,
-          generatedVideo: null,
-          status: 'idle'
-        };
-      });
+      const smartFallbackScenes = buildFallbackScenes(effectiveName, effectiveApp, effectiveCostume);
       onUpdateScenes(smartFallbackScenes);
       setResourceAlert({
-        type: 'success',
-        message: `Đã tạo kịch bản bám sát "${effectiveName}". Bạn có thể chỉnh sửa thêm lời thoại từng cảnh!`
+        type: 'warning',
+        message: `AI chưa trả về kịch bản hợp lệ. Đây là bản nháp mẫu cho "${effectiveName}". Bạn có thể chỉnh sửa thêm lời thoại từng cảnh!`
       });
     } finally {
       setIsGeneratingFullScript(false);
@@ -559,6 +535,10 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
   };
 
   const handleGenerateSceneImage = async (sceneNumber: number, feedbackDirective?: string): Promise<MediaAsset | null> => {
+    const lock = String(sceneNumber);
+    if (runningScenes.current.has(lock)) return null;
+    runningScenes.current.add(lock);
+    const requestedId = scenesRef.current.find(s => s.sceneNumber === sceneNumber)?.id;
     try {
       if (!productAsset || !modelPersonAsset) {
         setResourceAlert({
@@ -573,12 +553,13 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       if (!targetScene) return null;
 
       onUpdateScenes((prev: SceneCard[]) =>
-        prev.map(s => s.sceneNumber === sceneNumber ? { ...s, status: 'generating_image', errorMessage: undefined } : s)
+        prev.map(s => s.id === requestedId ? { ...s, status: 'generating_image', errorMessage: undefined } : s)
       );
 
       const refIds: string[] = [];
       const addRef = (id?: string) => {
-        if (id && id.trim() && !id.startsWith('upload_') && !refIds.includes(id)) {
+        if (id && !refIds.includes(id)) {
+          requireRemoteMedia({mediaId: id}, 'Ảnh tham chiếu');
           refIds.push(id);
         }
       };
@@ -596,7 +577,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
 
       const rawPrompt = `Commercial portrait for scene: ${targetScene.imagePrompt}. ` +
         `Style aesthetic: ${styleObj?.title || 'TikTok UGC'} - ${styleObj?.cinematography || 'natural handheld'}. ` +
-        `Product detail: holding the cosmetic product neatly in view. Maintain packaging color and silhouette identical to reference product. ` +
+        `${productContext(productName, productDescription, targetScene.productVisualDetails || productAppearance)} ` +
         `Subject: everyday relatable creator with warm friendly expression. ` +
         `${costumeDirective} ` +
         `Framing: ${targetScene.cameraAngle || 'Medium close-up'}. Natural aesthetic lighting, pristine skin texture. ` +
@@ -604,12 +585,13 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
 
       const safePrompt = sanitizePolicySafePrompt(rawPrompt);
 
-      const result = await Flow.generate.image({
+      const result = await withTimeout(Flow.generate.image({
         prompt: safePrompt,
         referenceImageMediaIds: refIds.length > 0 ? refIds.slice(0, 7) : undefined,
         aspectRatio: aspectRatio,
         modelDisplayName: selectedImageModel
-      });
+      }));
+      if (!result?.base64) throw new Error('Flow chưa trả về ảnh hợp lệ.');
 
       const newAsset: MediaAsset = {
         mediaId: result.mediaId,
@@ -631,7 +613,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       });
 
       onUpdateScenes((prev: SceneCard[]) =>
-        prev.map(s => s.sceneNumber === sceneNumber ? {
+        prev.map(s => s.id === requestedId ? {
           ...s,
           generatedImage: newAsset,
           status: 'idle',
@@ -649,13 +631,15 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
         friendlyError = `Hết hạn mức model ${selectedImageModel}. Hãy mở icon Cài Đặt trên thanh tiêu đề để chuyển sang Nano Banana 2 Lite.`;
       }
       onUpdateScenes((prev: SceneCard[]) =>
-        prev.map(s => s.sceneNumber === sceneNumber ? {
+        prev.map(s => s.id === requestedId ? {
           ...s,
           status: 'error',
           errorMessage: friendlyError
         } : s)
       );
       return null;
+    } finally {
+      runningScenes.current.delete(lock);
     }
   };
 
@@ -678,7 +662,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       await Promise.allSettled(
         currentList.map(scene => handleGenerateSceneImage(scene.sceneNumber))
       );
-      setBatchImageProgress('Đã hoàn tất!');
+      setBatchImageProgress('Đã xử lý xong đợt ảnh. Kiểm tra trạng thái từng cảnh.');
       setTimeout(() => setBatchImageProgress(''), 2000);
     } catch (e) {
       console.warn('Lỗi hàng loạt tạo ảnh:', e);
@@ -689,11 +673,17 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
 
   // Tạo video phân cảnh - có bổ sung quy tắc chống lặp từ
   const handleGenerateSceneVideo = async (sceneNumber: number, feedbackDirective?: string): Promise<MediaAsset | null> => {
-    let isTimedOut = false;
+    const lock = String(sceneNumber);
+    if (runningScenes.current.has(lock)) return null;
+    runningScenes.current.add(lock);
+    const requestedId = scenesRef.current.find(s => s.sceneNumber === sceneNumber)?.id;
     try {
       const currentList = scenesRef.current;
       const targetScene = currentList.find(s => s.sceneNumber === sceneNumber);
       if (!targetScene) return null;
+      if (calculateWordCount(targetScene.dialogue) > getMaxWordsForDuration(targetScene.durationSeconds)) {
+        throw new Error('Lời thoại quá dài cho thời lượng cảnh. Hãy rút gọn hoặc tăng thời lượng trước khi render.');
+      }
 
       if (!targetScene.generatedImage && !modelPersonAsset) {
         setResourceAlert({
@@ -704,23 +694,15 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       }
 
       onUpdateScenes((prev: SceneCard[]) =>
-        prev.map(s => s.sceneNumber === sceneNumber ? { ...s, status: 'generating_video', errorMessage: undefined } : s)
+        prev.map(s => s.id === requestedId ? { ...s, status: 'generating_video', errorMessage: undefined } : s)
       );
 
-      startTimeoutCountdown(sceneNumber, () => {
-        isTimedOut = true;
-        onUpdateScenes((prev: SceneCard[]) =>
-          prev.map(s => s.sceneNumber === sceneNumber ? {
-            ...s,
-            status: 'error',
-            errorMessage: 'Thời gian tạo video đã vượt quá 5 phút (Timeout).'
-          } : s)
-        );
-      });
+      startTimeoutCountdown(sceneNumber);
 
       const validImageRefIds: string[] = [];
       const addValidId = (id?: string) => {
-        if (id && id.trim() && !id.startsWith('upload_') && !validImageRefIds.includes(id)) {
+        if (id && !validImageRefIds.includes(id)) {
+          requireRemoteMedia({mediaId: id}, 'Ảnh tham chiếu');
           validImageRefIds.push(id);
         }
       };
@@ -734,14 +716,15 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       const cappedImageRefs = validImageRefIds.slice(0, 7);
 
       const currentVoice = audioVoiceRef.current;
-      const isValidVoiceId = currentVoice?.mediaId && !currentVoice.mediaId.startsWith('upload_');
+      const voiceId = getVoiceReference(currentVoice);
+      const isValidVoiceId = Boolean(voiceId);
       const styleObj = REVIEW_STYLES.find(st => st.id === selectedStyle);
 
       const costumeVideoConstraint = costumeAssetRef.current
         ? `Maintain identical outfit style from costume reference.`
         : `Maintain identical clothing from model reference.`;
 
-      const voiceDetailedSpec = buildDetailedVoicePrompt(selectedVoiceRegion, selectedVoiceGender, selectedVoiceTone);
+      const voiceDetailedSpec = buildDetailedVoicePrompt(selectedVoiceRegion, selectedVoiceGender, selectedVoiceTone) + ` Additional voice direction: ${customVoiceNotes}`;
 
       // Quy tắc nói một mạch, không lặp lại từ (như khô rát khô rát)
       const antiStutterDirective = `Mouth movement must speak the exact phrase once smoothly without stuttering or repeating words: "${targetScene.dialogue}". No audio repetition or word echo.`;
@@ -752,75 +735,29 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
 
       const rawPrompt = 
         `Commercial creator video for scene: ${targetScene.videoPrompt}. ` +
-        `Style: ${styleObj?.title || 'Skincare ASMR'} - ${styleObj?.cinematography || 'Macro 105mm closeup'}. ` +
-        `Product: cosmetic bottle in soft background. Maintain packaging design and colors from reference. ` +
+        `Style: ${styleObj?.title || 'Product demonstration'} - ${styleObj?.cinematography || 'Natural medium shot'}. ` +
+        `${productContext(productName, productDescription, targetScene.productVisualDetails || productAppearance)} ` +
         `${costumeVideoConstraint} ` +
         `${voiceSyncConstraint} ` +
-        `Acting: ${targetScene.actingGuide || 'gentle fingertips touching cheek'}. ` +
+        `Acting: ${targetScene.actingGuide || 'demonstrate the actual product naturally'}. ` +
         `Movement: ${targetScene.cameraAngle || 'Macro closeup'}. Soft natural lighting, warm aesthetic. ` +
         `${feedbackDirective ? `USER DIRECTIVE: ${feedbackDirective}` : ''}`;
 
       const prompt = sanitizePolicySafePrompt(rawPrompt);
 
-      let videoResult: any = null;
-      let lastErr: any = null;
-
-      const attemptsToTry: Array<{ useAudio: boolean; resolution: '720p' | '360p' }> = [];
-
-      if (isValidVoiceId && cappedImageRefs.length > 0) {
-        attemptsToTry.push({ useAudio: true, resolution: resolution });
-        attemptsToTry.push({ useAudio: false, resolution: resolution });
-      } else {
-        attemptsToTry.push({ useAudio: false, resolution: resolution });
-        if (resolution === '720p') {
-          attemptsToTry.push({ useAudio: false, resolution: '360p' });
-        }
-      }
-
-      for (let i = 0; i < attemptsToTry.length; i++) {
-        const attemptConfig = attemptsToTry[i];
-        try {
-          const videoOptions: any = {
-            prompt,
-            referenceImageMediaIds: cappedImageRefs.length > 0 ? cappedImageRefs : undefined,
-            aspectRatio: aspectRatio,
-            resolution: attemptConfig.resolution,
-            durationSeconds: targetScene.durationSeconds || 6,
-            modelDisplayName: selectedVideoModel || 'Omni 1.1 Flash'
-          };
-
-          if (attemptConfig.useAudio && isValidVoiceId) {
-            videoOptions.audioReferenceMediaIds = [currentVoice!.mediaId];
-          }
-
-          videoResult = await Flow.generate.video(videoOptions);
-          if (videoResult?.base64) break;
-        } catch (callErr: any) {
-          lastErr = callErr;
-          console.warn(`Lần tạo video cảnh #${sceneNumber} (chiến lược ${i + 1}) gặp sự cố:`, callErr);
-
-          const errMsg = callErr?.message || String(callErr || '');
-          if (errMsg.toLowerCase().includes('người nổi tiếng') || errMsg.toLowerCase().includes('celebrity')) {
-            throw callErr;
-          }
-
-          if (i < attemptsToTry.length - 1) {
-            await new Promise(r => setTimeout(r, 1500));
-          }
-        }
-      }
-
-      if (!videoResult?.base64) {
-        throw lastErr || new Error('Dịch vụ tạm thời không hoạt động. Hãy thử lại.');
-      }
+      const videoResult = await withTimeout(Flow.generate.video({
+        prompt, referenceImageMediaIds: cappedImageRefs.length ? cappedImageRefs : undefined,
+        audioReferenceMediaIds: voiceId ? [voiceId] : undefined,
+        aspectRatio, resolution, durationSeconds: targetScene.durationSeconds,
+        modelDisplayName: selectedVideoModel,
+      }));
+      if (!videoResult?.base64) throw new Error('Flow chưa trả về video hợp lệ.');
 
       stopTimeoutCountdown(sceneNumber);
 
-      if (isTimedOut) return null;
 
-      const bytes = Uint8Array.from(atob(videoResult.base64), c => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: videoResult.mimeType || 'video/mp4' });
-      const blobUrl = URL.createObjectURL(blob);
+
+      const blobUrl = mediaPreview(videoResult);
 
       const newAsset: MediaAsset = {
         mediaId: videoResult.mediaId,
@@ -842,7 +779,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       });
 
       onUpdateScenes((prev: SceneCard[]) =>
-        prev.map(s => s.sceneNumber === sceneNumber ? {
+        prev.map(s => s.id === requestedId ? {
           ...s,
           generatedVideo: newAsset,
           status: 'done',
@@ -852,26 +789,25 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
       return newAsset;
     } catch (err: any) {
       stopTimeoutCountdown(sceneNumber);
-      if (!isTimedOut) {
-        console.warn(`Lỗi tạo video cảnh ${sceneNumber}:`, err);
-        const rawErrText = err instanceof Error ? err.message : String(err || '');
-        
-        let friendlyMessage = rawErrText || 'Dịch vụ tạm thời không hoạt động. Hãy thử lại.';
-        if (rawErrText.toLowerCase().includes('người nổi tiếng') || rawErrText.toLowerCase().includes('celebrity')) {
-          friendlyMessage = 'Cảnh báo chính sách: Ảnh nhân vật hoặc câu lệnh có thể liên quan đến người nổi tiếng. Vui lòng đổi ảnh chân dung KOC tự tạo hoặc chỉnh lại prompt.';
-        } else if (rawErrText.includes('không hoạt động') || rawErrText.includes('SOMETHING_WENT_WRONG') || rawErrText.includes('UNSPECIFIED')) {
-          friendlyMessage = 'Dịch vụ tạo video đang quá tải tạm thời. Hãy bấm nút "Tạo Lại Cảnh Lỗi" để thử lại.';
-        }
-
-        onUpdateScenes((prev: SceneCard[]) =>
-          prev.map(s => s.sceneNumber === sceneNumber ? {
-            ...s,
-            status: 'error',
-            errorMessage: friendlyMessage
-          } : s)
-        );
+      console.warn(`Lỗi tạo video cảnh ${sceneNumber}:`, err);
+      const rawErrText = err instanceof Error ? err.message : String(err || '');
+      let friendlyMessage = rawErrText || 'Dịch vụ tạm thời không hoạt động. Hãy thử lại.';
+      if (rawErrText.toLowerCase().includes('người nổi tiếng') || rawErrText.toLowerCase().includes('celebrity')) {
+        friendlyMessage = 'Cảnh báo chính sách: Ảnh nhân vật hoặc câu lệnh có thể liên quan đến người nổi tiếng. Vui lòng đổi ảnh chân dung KOC tự tạo hoặc chỉnh lại prompt.';
+      } else if (rawErrText.includes('không hoạt động') || rawErrText.includes('SOMETHING_WENT_WRONG') || rawErrText.includes('UNSPECIFIED')) {
+        friendlyMessage = 'Dịch vụ tạo video đang quá tải tạm thời. Hãy bấm nút "Tạo Lại Cảnh Lỗi" để thử lại.';
       }
+      onUpdateScenes((prev: SceneCard[]) =>
+        prev.map(s => s.id === requestedId ? {
+          ...s,
+          status: 'error',
+          errorMessage: friendlyMessage
+        } : s)
+      );
       return null;
+    } finally {
+      runningScenes.current.delete(lock);
+      stopTimeoutCountdown(sceneNumber);
     }
   };
 
@@ -907,7 +843,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
         }
       }
 
-      setBatchVideoProgress('Đã hoàn tất!');
+      setBatchVideoProgress('Đã xử lý xong đợt video. Kiểm tra trạng thái từng cảnh.');
       setTimeout(() => setBatchVideoProgress(''), 2000);
     } catch (e) {
       console.warn('Lỗi đợt video:', e);
@@ -1092,11 +1028,11 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
                 ? 'bg-emerald-500 text-zinc-950 border-emerald-400' 
                 : 'bg-zinc-800 text-zinc-400 border-zinc-700'
             }`}>
-              {audioVoiceAsset ? 'ĐỒNG BỘ GIỌNG ✓' : 'FLOW VOICE (TÙY CHỌN)'}
+              {audioVoiceAsset ? 'ĐÃ NẠP GIỌNG THAM CHIẾU' : 'FLOW VOICE (TÙY CHỌN)'}
             </span>
             <MediaUploader
               label="Giọng Voice FLOW"
-              sublabel={audioVoiceAsset ? (audioVoiceAsset.type === 'video' ? 'Đã lấy tiếng từ video mẫu' : 'Đã nạp file âm thanh MP3/WAV') : 'Tải file MP3 hoặc video mẫu'}
+              sublabel={audioVoiceAsset ? (audioVoiceAsset.type === 'video' ? 'Video được gửi làm tham chiếu âm thanh' : 'Đã nạp file âm thanh MP3/WAV') : 'Tải file MP3 hoặc video mẫu'}
               icon="mic"
               asset={audioVoiceAsset}
               filter="all"
@@ -1573,7 +1509,8 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
         }}
       />
 
-      <VideoConcatenatorTimeline
+      {isTimelineOpen && <VideoConcatenatorTimeline
+        aspectRatio={aspectRatio}
         scenes={scenes}
         isOpen={isTimelineOpen}
         onClose={() => setIsTimelineOpen(false)}
@@ -1587,7 +1524,7 @@ export const ProductScriptStudio: React.FC<ProductScriptStudioProps> = ({
             model: 'FFmpeg Timeline Concat'
           });
         }}
-      />
+      />}
 
       <SceneDetailModal
         scene={editingScene}

@@ -1,4 +1,4 @@
-import { CharacterAttributes, CharacterPreset, VoiceRegion, VoiceGender } from './types';
+import { CharacterAttributes, CharacterPreset, VoiceRegion, VoiceGender, VoiceTone } from './types';
 
 export const DEFAULT_ATTRIBUTES: CharacterAttributes = {
   gender: 'female',
