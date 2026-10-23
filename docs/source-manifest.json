@@ -1,0 +1,183 @@
+{
+  "title": "Affiliate AI Video",
+  "exportedOn": "2026-10-23",
+  "sourceUrl": "https://flow.google.com/project/a2a91d8d-800e-4980-bb48-8987eccf39d8/tool/ed2a429c-065e-4aa9-907b-130f9f478b41?fromViewSource=tools&mode=EDIT",
+  "sourceFileCount": 29,
+  "extraction": "All files listed in the Google Flow Code tab; source text preserved without line numbers.",
+  "files": [
+    {
+      "path": "App.tsx",
+      "bytes": 38548,
+      "lines": 796,
+      "sha256": "22f3ba0eef3c5a36da64b25cff9eab3ccefd27d3a52ddd7f2a16a068176f4119"
+    },
+    {
+      "path": "components/AttributesForm.tsx",
+      "bytes": 17330,
+      "lines": 415,
+      "sha256": "32bc363e89c8620d144b4d675fa0760749210878bfe8bd78be875872a4ea01f7"
+    },
+    {
+      "path": "components/CharacterFitter.tsx",
+      "bytes": 10196,
+      "lines": 245,
+      "sha256": "cda9734156d53436549ab44ee3c620ebd1444d7c7635f72ec3eb6e59050c43a3"
+    },
+    {
+      "path": "components/GlobalModelSettingsModal.tsx",
+      "bytes": 8386,
+      "lines": 172,
+      "sha256": "b294b37a77b8a300a965645226a9f86fd7fd3403d0e8806d3368fc1016e04b4a"
+    },
+    {
+      "path": "components/HistoryDrawer.tsx",
+      "bytes": 5869,
+      "lines": 127,
+      "sha256": "42b53d1f32a126ddf361995c1760bc6a5a048e30de2fc6a1542598cc512f4584"
+    },
+    {
+      "path": "components/HistoryModal.tsx",
+      "bytes": 6831,
+      "lines": 150,
+      "sha256": "2c5a1164e398b67982e7b82dab9c92e2d5dff22694b153e1e5c02f04cbc4abc2"
+    },
+    {
+      "path": "components/ImageAnalyzerModal.tsx",
+      "bytes": 10233,
+      "lines": 214,
+      "sha256": "049ad3bc4079bbb0e5206bfa1e0fda88bf2293da6bbcdedd735e2a20f69f263a"
+    },
+    {
+      "path": "components/ImageZoomModal.tsx",
+      "bytes": 4653,
+      "lines": 116,
+      "sha256": "8d7c1e4734282dc0e4525d939dca2614a1ecbfb4caf7cb7a7f1d4e90965fcfc9"
+    },
+    {
+      "path": "components/InfoModal.tsx",
+      "bytes": 6872,
+      "lines": 124,
+      "sha256": "0bc9a7af0595fa832dbe894e977a11808a94396fae91f51541e0eaebf87edf30"
+    },
+    {
+      "path": "components/MediaInspectModal.tsx",
+      "bytes": 9615,
+      "lines": 215,
+      "sha256": "752443facd782d1f595c72c02118e53d14e71bd8bb0a289b1b009ab533b710af"
+    },
+    {
+      "path": "components/MediaUploader.tsx",
+      "bytes": 10252,
+      "lines": 243,
+      "sha256": "2e6775147a886bc8c3d216499dbe486f1828d7ef2a127538d09efc6eb799ae1e"
+    },
+    {
+      "path": "components/MotionCloner.tsx",
+      "bytes": 11621,
+      "lines": 267,
+      "sha256": "e4163a3c5c94ef56f5ac803d91b77a3385686325a26a2dbd0b5b3cf32e81e590"
+    },
+    {
+      "path": "components/MotionClonerAuto.tsx",
+      "bytes": 36575,
+      "lines": 733,
+      "sha256": "3b32004ad1f058a782cfc692b385eefd123a7f8bd1e64c361922ce549756c09f"
+    },
+    {
+      "path": "components/ProductScriptStudio.tsx",
+      "bytes": 78825,
+      "lines": 1615,
+      "sha256": "e8ef2aec27c6d2ef3f45373c4a1afa9987df3259f36e984455e45aaa1f6deaf9"
+    },
+    {
+      "path": "components/PromptDisplay.tsx",
+      "bytes": 5302,
+      "lines": 131,
+      "sha256": "3e35882fcbf1507ca4c6c084fe1cfface9919741974d3f10be577787695d8cfb"
+    },
+    {
+      "path": "components/RegenerateFeedbackModal.tsx",
+      "bytes": 6955,
+      "lines": 137,
+      "sha256": "08135d323abff5c57a5b2375c2656634407718ef33761f5d9542bc66f8ab4296"
+    },
+    {
+      "path": "components/RegenerateImageModal.tsx",
+      "bytes": 6937,
+      "lines": 136,
+      "sha256": "f2c6b3c505d0a3f1bfb9ca70a694687e93ea657798d5a8e00ddec5eb61f00eb0"
+    },
+    {
+      "path": "components/SceneCardItem.tsx",
+      "bytes": 20134,
+      "lines": 391,
+      "sha256": "f8d01e7ad621f3d7e2767676ede94f9f6aafe6677127e3d9712f48b7cc074b90"
+    },
+    {
+      "path": "components/SceneDetailModal.tsx",
+      "bytes": 11305,
+      "lines": 225,
+      "sha256": "ac816caa87a04ee4b60fe3bb5de32033effe93d78c91c353bc97f247bb7a2e21"
+    },
+    {
+      "path": "components/StepIndicator.tsx",
+      "bytes": 1898,
+      "lines": 50,
+      "sha256": "a8d8c6c0c81f069c356fc7b5ecc480fecf0e773738a4663317ce8848d2574b3a"
+    },
+    {
+      "path": "components/VideoConcatenatorTimeline.tsx",
+      "bytes": 23002,
+      "lines": 502,
+      "sha256": "065cd1c98bb50ed2295bfef0314c130ebf14a78597d90d71aec4939c77d70b9e"
+    },
+    {
+      "path": "components/VideoPostCaptionSection.tsx",
+      "bytes": 15449,
+      "lines": 317,
+      "sha256": "e13c3f7eb415b1b5c68cbcbb6f550c210995f6e2a4a8253d3521cca938b4c138"
+    },
+    {
+      "path": "components/VoiceConfigPanel.tsx",
+      "bytes": 9472,
+      "lines": 197,
+      "sha256": "4e15516f4ff2edc6438d6b78cda4b403de38b2c4b660fb36daa99bcdeddaf8e8"
+    },
+    {
+      "path": "constants.ts",
+      "bytes": 30702,
+      "lines": 526,
+      "sha256": "a1296ba64428e7d268ef14fe2e3108288c4f9c01cfe58522219daaf99826fdb1"
+    },
+    {
+      "path": "services/ffmpegService.ts",
+      "bytes": 5531,
+      "lines": 196,
+      "sha256": "85bcf5dff9cfb5cc7b50aa50f57c4607db6abfd0f9353dfbab50b54d6e786d01"
+    },
+    {
+      "path": "types.ts",
+      "bytes": 2740,
+      "lines": 125,
+      "sha256": "615e312c4b7f49ae14b0cea6bad92dcab7cdcceb7ac0265a865f94ca1180d314"
+    },
+    {
+      "path": "utils/durationCalculator.ts",
+      "bytes": 1982,
+      "lines": 53,
+      "sha256": "176773210a8db65ccde5c8d88abc66c7071419e0c065f68275408e676e3f2377"
+    },
+    {
+      "path": "utils/promptBuilder.ts",
+      "bytes": 2833,
+      "lines": 78,
+      "sha256": "996f936d56a6e9cd4b26a173887330a5a94b8774d88f83309d1d659f0c323aad"
+    },
+    {
+      "path": "utils/promptEnhancer.ts",
+      "bytes": 5082,
+      "lines": 94,
+      "sha256": "4aaf013b121b971a9639847c4bc7b4e3c7df50175d78baef207e1538e9156cd3"
+    }
+  ]
+}
