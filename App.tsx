@@ -27,6 +27,7 @@ import { HistoryModal } from './components/HistoryModal';
 import { ImageZoomModal } from './components/ImageZoomModal';
 import { ProductScriptStudio } from './components/ProductScriptStudio';
 import { MotionClonerAuto } from './components/MotionClonerAuto';
+import { AsmrReviewStudio } from './components/AsmrReviewStudio';
 import { InfoModal } from './components/InfoModal';
 import { GlobalModelSettingsModal } from './components/GlobalModelSettingsModal';
 
@@ -35,6 +36,7 @@ const VIDEO_MODEL_DEFAULT = 'Omni 1.1 Flash';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('character_studio');
+  const [asmrVisited, setAsmrVisited] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState<boolean>(false);
 
@@ -291,7 +293,7 @@ export default function App() {
       {projectError && <p role="alert" className="px-4 py-2 text-sm text-red-300">{projectError}</p>}
       {/* Top Header Navigation */}
       <header className="border-b border-zinc-800 bg-zinc-900/90 backdrop-blur-md px-3 sm:px-5 py-2.5 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-3">
           
           {/* Logo + Tên App */}
           <div className="flex items-center justify-between w-full lg:w-auto min-w-0">
@@ -305,7 +307,7 @@ export default function App() {
                     Affiliate AI Video
                   </span>
                   <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                    v1.0
+                    v1.2
                   </span>
                   <span className="text-[11px] text-amber-400 font-mono font-semibold">by hitechmmo</span>
                 </div>
@@ -379,6 +381,16 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => { setAsmrVisited(true); setActiveTab('asmr_review'); }}
+              className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                activeTab === 'asmr_review' ? 'bg-teal-400 text-zinc-950 shadow-md' : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+              }`}
+            >
+              <span className="material-symbols-outlined text-base">graphic_eq</span>
+              <span>ASMR Review</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('motion_cloner')}
               className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 activeTab === 'motion_cloner'
@@ -402,7 +414,7 @@ export default function App() {
             <button
               onClick={() => setIsHelpOpen(true)}
               className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer ml-0.5"
-              title="Hướng dẫn & Thông tin Affiliate AI Video v1.0 by hitechmmo"
+              title="Hướng dẫn & Thông tin Affiliate AI Video v1.2 by hitechmmo"
             >
               <span className="material-symbols-outlined text-base">help</span>
             </button>
@@ -730,6 +742,8 @@ export default function App() {
           </div>
         )}
 
+        {asmrVisited && <div hidden={activeTab !== 'asmr_review'}><AsmrReviewStudio /></div>}
+
         {/* ==================== TAB 3: SAO CHÉP CHUYỂN ĐỘNG ==================== */}
         {(
           <div hidden={activeTab !== 'motion_cloner'}>
@@ -771,7 +785,7 @@ export default function App() {
       <footer className="border-t border-zinc-900 bg-zinc-950/95 px-4 py-4 text-xs text-zinc-400">
         <div className="max-w-7xl mx-auto flex items-center justify-center text-center">
           <p className="leading-relaxed">
-            Affiliate AI Video v1.0 • by <strong className="text-amber-400">hitechmmo</strong> • Google Flow Tool
+            Affiliate AI Video v1.2 • by <strong className="text-amber-400">hitechmmo</strong> • Google Flow Tool
           </p>
         </div>
       </footer>

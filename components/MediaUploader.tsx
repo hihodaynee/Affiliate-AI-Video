@@ -11,6 +11,7 @@ interface MediaUploaderProps {
   onSelect: () => void;
   onClear: () => void;
   onUploadFile?: (asset: MediaAsset) => void;
+  onUploadBusyChange?: (busy: boolean) => void;
 }
 
 export const MediaUploader: React.FC<MediaUploaderProps> = ({
@@ -21,7 +22,8 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
   filter,
   onSelect,
   onClear,
-  onUploadFile
+  onUploadFile,
+  onUploadBusyChange
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -42,11 +44,12 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
     e.target.value = '';
     if (!file || uploadingRef.current || !onUploadFile) return;
     uploadingRef.current = true;
+    onUploadBusyChange?.(true);
     setIsUploading(true);
     setUploadError(null);
     try { onUploadFile(await uploadDeviceFile(file, filter)); }
     catch (error) { setUploadError(error instanceof Error ? error.message : 'Không thể tải tệp.'); }
-    finally { uploadingRef.current = false; setIsUploading(false); }
+    finally { uploadingRef.current = false; setIsUploading(false); onUploadBusyChange?.(false); }
   };
 
   return (
@@ -127,7 +130,7 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
               className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer w-full justify-center transition-colors"
             >
               <span className="material-symbols-outlined text-sm">upload_file</span>
-              <span>Tải file MP3 / Video từ máy</span>
+              <span>{filter === 'image' ? 'Tải ảnh từ thiết bị' : filter === 'video' ? 'Tải video từ thiết bị' : 'Tải file âm thanh / Video từ máy'}</span>
             </button>
           </div>
         </div>

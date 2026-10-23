@@ -11,6 +11,7 @@ interface VideoConcatenatorTimelineProps {
   isOpen: boolean;
   onClose: () => void;
   onSaveMergedVideo: (mergedAsset: MediaAsset) => void;
+  requireAudio?: boolean;
 }
 
 export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps> = ({
@@ -18,7 +19,8 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
   aspectRatio,
   isOpen,
   onClose,
-  onSaveMergedVideo
+  onSaveMergedVideo,
+  requireAudio = false
 }) => {
 
 
@@ -123,7 +125,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
 
       setConcatProgress(`Đang chuẩn bị ghép nối ${clipOrder.length} clip...`);
       setConcatProgress('Đang ghép video, giữ tỷ lệ khung hình đã chọn...');
-      await ffmpegService.exec(buildConcatArgs(fileNames, aspectRatio, audioPreserveMode === 'with_audio'));
+      await ffmpegService.exec(buildConcatArgs(fileNames, aspectRatio, requireAudio || audioPreserveMode === 'with_audio'));
 
       setConcatProgress('Đang đọc video hoàn chỉnh từ bộ nhớ ảo...');
       const outputData = await ffmpegService.readFile('merged_output.mp4') as Uint8Array;
@@ -150,7 +152,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
         mediaId: `merged_${Date.now()}`,
         base64,
         mimeType: 'video/mp4',
-        name: `Video_Review_Full_5_Canh_${Date.now()}`,
+        name: `Video_${requireAudio ? 'ASMR' : 'Review'}_${clipOrder.length}_Canh_${Date.now()}`,
         type: 'video',
         previewUrl: mediaPreview({base64, mimeType: 'video/mp4'})
       };
@@ -159,9 +161,9 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
       onSaveMergedVideo(mergedAsset);
       setConcatProgress(`Ghép thành công trọn vẹn ${clipOrder.length} clip (${totalDuration}s)! Đã sẵn sàng tải về.`);
     } catch (err: any) {
-      console.error('Lỗi khi ghép nối 5 clip:', err);
+      console.error('Lỗi khi ghép clip:', err);
       const errMsg = err instanceof Error ? err.message : String(err || '');
-      setErrorMessage(`Quá trình ghép gặp sự cố: ${errMsg}. Mẹo: Hãy thử chọn chế độ "Không tiếng" phía trên hoặc kiểm tra các clip.`);
+      setErrorMessage(`Quá trình ghép gặp sự cố: ${errMsg}. ${requireAudio ? 'ASMR cần âm thanh. Hãy kiểm tra hoặc tạo lại clip thiếu tiếng trước khi ghép.' : 'Hãy kiểm tra các clip hoặc chọn chế độ Không tiếng.'}`);
       setConcatProgress('Ghép thất bại. Vui lòng thử lại.');
     } finally {
       // Dọn dẹp an toàn các tệp tạm trong virtual filesystem
@@ -218,6 +220,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
               </button>
               <button
                 type="button"
+                hidden={requireAudio}
                 onClick={() => setAudioPreserveMode('video_only')}
                 className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                   audioPreserveMode === 'video_only'
