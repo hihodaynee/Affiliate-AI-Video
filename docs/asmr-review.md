@@ -32,7 +32,7 @@ Người dùng yêu cầu lấy phong cách làm tham chiếu, không mặc đ�
 3. Kiểm tra JSON, nhịp liên tục và vừa thời lượng. Chế độ thuần không được có lời; chế độ xen kẽ phải có cả hai loại, không hai cảnh có lời liên tiếp. Lời review phải vừa thời gian theo giới hạn đọc bảo thủ.
 4. Người dùng có thể sửa hành động/góc máy/âm thanh và lời review trước render. Đổi đầu vào yêu cầu lập lại kịch bản; clip cũ vẫn tải được. Sửa nội dung một cảnh làm mất hiệu lực video và duyệt tiếng của riêng cảnh đó.
 5. Render tuần tự, luôn gửi ảnh gốc, tùy chọn góc thứ hai, thời lượng AI chọn và prompt âm thanh. Không dùng voice/KOC của module cũ. Khóa yêu cầu trùng; lỗi dừng lượt tạo và giữ clip đã hoàn tất. Nút dừng chờ clip hiện tại hoàn thành, không giả vờ hủy job từ xa.
-6. Người dùng nghe và đánh dấu âm thanh phù hợp cho từng clip. Chỉ bật ghép khi tất cả clip có video và đã duyệt tiếng. FFmpeg giữ audio bắt buộc cho ASMR, không cung cấp cách ghép bỏ tiếng; thiếu audio phải sửa/tạo lại clip. Có thể tải từng clip hoặc video ghép.
+6. Người dùng nghe và đánh dấu âm thanh phù hợp cho từng clip. Chỉ bật ghép khi tất cả clip có video và đã duyệt tiếng. FFmpeg giữ audio bắt buộc cho ASMR, không cung cấp cách ghép bỏ tiếng; thiếu audio phải sửa/tạo lại clip. Giữ thứ tự AI đã dựng để bảo toàn nhịp review xen kẽ. Kịch bản chỉ một cảnh hoàn tất trực tiếp bằng clip đã tạo, không cần chạy FFmpeg. Có thể tải từng clip hoặc video hoàn chỉnh.
 
 ## Tách biệt dữ liệu
 
@@ -41,6 +41,7 @@ Người dùng yêu cầu lấy phong cách làm tham chiếu, không mặc đ�
 - JSON có `kind: "asmr_review"`, `version: 1`; từ chối nhập nhầm định dạng review cũ.
 - Lưu input, kịch bản, nhịp, voice setting, clip, trạng thái duyệt tiếng và video ghép. Khi khôi phục, trạng thái đang tạo trở về idle; preview dựng lại từ dữ liệu media.
 - Tự lưu sau khoảng một giây. Nếu kho không đọc được thì không ghi đè bản lưu cũ. Nên xuất JSON để có bản sao khi trình duyệt hết dung lượng.
+- Khi xóa ảnh để thay tư liệu mới, vẫn khôi phục được bản nháp và clip cũ. Cần thêm ảnh và lập lại kịch bản trước lượt tạo mới.
 
 ## Kiểm chứng và giới hạn
 

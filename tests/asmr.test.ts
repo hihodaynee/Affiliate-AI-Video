@@ -99,4 +99,15 @@ describe('ASMR persistence isolation', () => {
     await expect(renderAsmrScene(saved,saved.scenes[0])).rejects.toThrow('Nội dung cảnh');
     expect(Flow.generate.video).not.toHaveBeenCalled();
   });
+  it('restores drafts after removing the product image without losing completed clips', async () => {
+    const project=asmrProject();
+    project.product=null;
+    project.scenes[0]={...project.scenes[0],video:asmrVideo,status:'done',audioReview:'approved'};
+    await saveAsmrProject(project);
+    const restored=(await loadAsmrProject())!;
+    expect(restored.product).toBeNull();
+    expect(restored.scenes[0].video?.base64).toBe(asmrVideo.base64);
+    await expect(renderAsmrScene(restored,restored.scenes[1])).rejects.toThrow('thêm một ảnh');
+    expect(Flow.generate.video).not.toHaveBeenCalled();
+  });
 });

@@ -12,6 +12,7 @@ interface VideoConcatenatorTimelineProps {
   onClose: () => void;
   onSaveMergedVideo: (mergedAsset: MediaAsset) => void;
   requireAudio?: boolean;
+  preserveOrder?: boolean;
 }
 
 export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps> = ({
@@ -20,7 +21,8 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
   isOpen,
   onClose,
   onSaveMergedVideo,
-  requireAudio = false
+  requireAudio = false,
+  preserveOrder = false
 }) => {
 
 
@@ -83,6 +85,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
   };
 
   const moveClip = (index: number, direction: 'left' | 'right') => {
+    if (preserveOrder) return;
     const newIdx = direction === 'left' ? index - 1 : index + 1;
     if (newIdx < 0 || newIdx >= clipOrder.length) return;
     const updated = [...clipOrder];
@@ -196,7 +199,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                 </span>
               </div>
               <p className="text-xs text-zinc-400">
-                Sắp xếp thứ tự phân cảnh, chuẩn hóa tỷ lệ và xuất video trọn vẹn ({totalDuration} giây)
+                {preserveOrder ? 'Giữ thứ tự kịch bản và nhịp lời review xen kẽ, chuẩn hóa tỷ lệ' : 'Sắp xếp thứ tự phân cảnh, chuẩn hóa tỷ lệ'} và xuất video trọn vẹn ({totalDuration} giây)
               </p>
             </div>
           </div>
@@ -295,9 +298,9 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
 
               {currentPreviewClip && (
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-zinc-400 block">Lời thoại KOC:</label>
+                  <label className="text-[11px] font-semibold text-zinc-400 block">{requireAudio ? 'Lời review / ASMR:' : 'Lời thoại KOC:'}</label>
                   <p className="text-xs text-zinc-200 bg-zinc-950 p-2.5 rounded-xl border border-zinc-850 leading-relaxed italic">
-                    &ldquo;{currentPreviewClip.dialogue}&rdquo;
+                    {currentPreviewClip.dialogue ? `“${currentPreviewClip.dialogue}”` : requireAudio ? 'ASMR thuần · chỉ tiếng thao tác' : ''}
                   </p>
                 </div>
               )}
@@ -389,7 +392,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                   <div className="flex items-center justify-between pt-1 border-t border-zinc-850">
                     <button
                       type="button"
-                      disabled={isConcatenating || idx === 0}
+                      disabled={preserveOrder || isConcatenating || idx === 0}
                       onClick={(e) => {
                         e.stopPropagation();
                         moveClip(idx, 'left');
@@ -402,7 +405,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                     <span className="text-[9px] text-zinc-500 font-mono">Vị trí {idx + 1}</span>
                     <button
                       type="button"
-                      disabled={isConcatenating || idx === clipOrder.length - 1}
+                      disabled={preserveOrder || isConcatenating || idx === clipOrder.length - 1}
                       onClick={(e) => {
                         e.stopPropagation();
                         moveClip(idx, 'right');

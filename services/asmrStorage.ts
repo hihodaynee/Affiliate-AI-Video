@@ -28,7 +28,8 @@ export function parseAsmrProject(value: unknown): AsmrProject {
   const project = schema.parse(value);
   // Drafts may contain temporarily incomplete text, or a plan for previous
   // inputs. Semantic validation is performed before rendering the current plan.
-  if (project.scenes.length && !project.product) throw new Error('Dự án có cảnh nhưng thiếu ảnh sản phẩm.');
+  // A user may remove a reference while choosing its replacement. Preserve
+  // that draft and any completed clips; rendering still requires an image.
   return { ...project, scenes: project.scenes.map(scene => ({
     ...scene, status: scene.status === 'generating' ? 'idle' : scene.status,
     audioReview: scene.video ? scene.audioReview : 'pending',

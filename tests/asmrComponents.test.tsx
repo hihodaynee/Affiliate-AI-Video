@@ -72,3 +72,19 @@ it('does not overwrite an unreadable ASMR autosave',async()=>{
   await act(async()=>{await vi.advanceTimersByTimeAsync(2000);});
   expect(saveAsmrProject).not.toHaveBeenCalled();
 });
+
+it('finishes an AI-designed single-scene video directly after audio review',async()=>{
+  const project=asmrProject();
+  project.scenes=[{...project.scenes[0],video:asmrVideo,status:'done'}];
+  vi.mocked(loadAsmrProject).mockResolvedValue(project);
+  vi.mocked(Flow.download).mockResolvedValue();
+  render(<AsmrReviewStudio/>);
+  await screen.findByText('Hoàn tất video ASMR (0/1 đã nghe)');
+  expect((screen.getByText('Hoàn tất video ASMR (0/1 đã nghe)') as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText('Đã nghe: âm thanh cảnh 1 phù hợp'));
+  fireEvent.click(screen.getByText('Hoàn tất video ASMR (1/1 đã nghe)'));
+  fireEvent.click(screen.getByText('Tải video ASMR'));
+  await waitFor(()=>expect(Flow.download).toHaveBeenCalledExactlyOnceWith({base64:asmrVideo.base64,mimeType:'video/mp4',filename:'ASMR_Review.mp4'}));
+  expect(screen.queryByText('Timeline Biên Tập & Ghép Nối Video')).toBeNull();
+  expect(Flow.generate.video).not.toHaveBeenCalled();
+});

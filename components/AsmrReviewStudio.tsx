@@ -44,6 +44,14 @@ export function AsmrReviewStudio() {
   const ready = project.scenes.filter(scene => scene.video && scene.audioReview === 'approved').length;
   const canMerge = planCurrent && ready === project.scenes.length;
 
+  const finishVideo = () => {
+    if (lock.current || !canMerge) return;
+    if (project.scenes.length === 1) {
+      setProject(current => ({ ...current, mergedVideo: current.scenes[0].video }));
+      setProgress('Video một cảnh đã hoàn tất. Bạn có thể tải trực tiếp, giữ nguyên hình ảnh và âm thanh.');
+    } else setTimelineOpen(true);
+  };
+
   const updateInput = (patch: Partial<AsmrProject>) => {
     if (!lock.current) setProject(current => ({ ...current, ...patch }));
   };
@@ -191,7 +199,7 @@ export function AsmrReviewStudio() {
           {!planCurrent && <p role="status" className="text-sm text-amber-300">Đầu vào đã thay đổi. Lập lại kịch bản trước khi tạo hoặc ghép video. Các clip trước vẫn có thể tải xuống.</p>}
           <div className="flex flex-wrap gap-2">
             <button className={primaryClass} disabled={busy || timelineOpen || !planCurrent || project.scenes.every(scene => scene.video && scene.audioReview !== 'rejected')} onClick={() => renderScenes(project.scenes.filter(scene => !scene.video || scene.audioReview === 'rejected').map(scene => scene.id))}>Tạo các cảnh chưa đạt</button>
-            <button className={buttonClass} disabled={busy || !canMerge} onClick={() => setTimelineOpen(true)}>Ghép video ASMR ({ready}/{project.scenes.length} đã nghe)</button>
+            <button className={buttonClass} disabled={busy || !canMerge} onClick={finishVideo}>{project.scenes.length === 1 ? 'Hoàn tất' : 'Ghép'} video ASMR ({ready}/{project.scenes.length} đã nghe)</button>
           </div>
           <p className="text-xs text-zinc-400">Mỗi cảnh tạo video là một yêu cầu riêng trên Flow. Lỗi sẽ dừng lượt tạo; những cảnh hoàn tất được giữ lại.</p>
         </div>
@@ -227,8 +235,8 @@ export function AsmrReviewStudio() {
         </div>
       </div>}
 
-      {project.mergedVideo && <div className="space-y-3 rounded-2xl border border-teal-500/30 p-5"><h2 className="font-bold">Video ASMR đã ghép{!planCurrent && ' · đầu vào trước'}</h2><video src={project.mergedVideo.previewUrl} controls playsInline className="w-full max-h-96 bg-black rounded-xl" /><button className={primaryClass} disabled={busy} onClick={() => download(project.mergedVideo!, 'ASMR_Review.mp4')}>Tải video ASMR</button></div>}
-      {timelineOpen && <VideoConcatenatorTimeline scenes={asmrTimelineScenes(project)} aspectRatio={project.aspectRatio} isOpen requireAudio onClose={() => setTimelineOpen(false)} onSaveMergedVideo={asset => setProject(current => ({...current, mergedVideo: asset}))} />}
+      {project.mergedVideo && <div className="space-y-3 rounded-2xl border border-teal-500/30 p-5"><h2 className="font-bold">Video ASMR hoàn chỉnh{!planCurrent && ' · đầu vào trước'}</h2><video src={project.mergedVideo.previewUrl} controls playsInline className="w-full max-h-96 bg-black rounded-xl" /><button className={primaryClass} disabled={busy} onClick={() => download(project.mergedVideo!, 'ASMR_Review.mp4')}>Tải video ASMR</button></div>}
+      {timelineOpen && <VideoConcatenatorTimeline scenes={asmrTimelineScenes(project)} aspectRatio={project.aspectRatio} isOpen requireAudio preserveOrder onClose={() => setTimelineOpen(false)} onSaveMergedVideo={asset => setProject(current => ({...current, mergedVideo: asset}))} />}
     </section>
   );
 }
