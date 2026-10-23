@@ -1,6 +1,6 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { MediaAsset } from '../types';
-import { Flow } from 'flow-sdk';
+import { uploadDeviceFile } from '../services/mediaUpload';
 
 interface MediaUploaderProps {
   label: string;
@@ -24,6 +24,9 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
   onUploadFile
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const uploadingRef = useRef(false);
   const isAudioOrVoiceSlot = filter === 'audio' || filter === 'all' || asset?.type === 'audio';
 
   const acceptMime = filter === 'image' 
@@ -32,74 +35,23 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
     ? 'video/mp4,video/webm,video/quicktime'
     : filter === 'audio'
     ? 'audio/mp3,audio/mpeg,audio/wav,audio/x-wav,audio/webm,audio/mp4,audio/ogg'
-    : 'audio/*,video/*,image/*';
+    : 'audio/*,video/*';
 
-  const handleDeviceFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDeviceFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const dataUrl = event.target?.result as string;
-      if (!dataUrl) return;
-
-      const [header, base64] = dataUrl.split(',');
-      const mimeMatch = header.match(/:(.*?);/);
-      let mimeType = mimeMatch ? mimeMatch[1] : file.type || 'audio/mpeg';
-
-      // Chuẩn hóa loại file
-      let type: 'image' | 'video' | 'audio' = 'audio';
-      if (mimeType.startsWith('image/')) type = 'image';
-      else if (mimeType.startsWith('video/')) type = 'video';
-      else type = 'audio';
-
-      // Tạo preview
-      let previewUrl = dataUrl;
-      try {
-        const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-        const blob = new Blob([bytes], { type: mimeType });
-        previewUrl = URL.createObjectURL(blob);
-      } catch (err) {
-        console.warn('Preview blob fallback:', err);
-      }
-
-      // Đẩy vào Flow media gallery nếu là ảnh hoặc video, còn audio thì tạo asset local và mediaId
-      let mediaId = `upload_${Date.now()}`;
-      try {
-        if (type === 'image' || type === 'video') {
-          const uploaded = await Flow.upload({
-            base64,
-            mimeType: mimeType as any,
-            name: file.name
-          });
-          if (uploaded?.mediaId) {
-            mediaId = uploaded.mediaId;
-          }
-        }
-      } catch (uploadErr) {
-        console.warn('Flow.upload fallback to local id:', uploadErr);
-      }
-
-      const newAsset: MediaAsset = {
-        mediaId,
-        base64,
-        mimeType,
-        name: file.name || 'Tệp tải lên',
-        type,
-        previewUrl
-      };
-
-      if (onUploadFile) {
-        onUploadFile(newAsset);
-      }
-    };
-    reader.readAsDataURL(file);
-    // Reset file input để có thể chọn lại file cùng tên
     e.target.value = '';
+    if (!file || uploadingRef.current || !onUploadFile) return;
+    uploadingRef.current = true;
+    setIsUploading(true);
+    setUploadError(null);
+    try { onUploadFile(await uploadDeviceFile(file, filter)); }
+    catch (error) { setUploadError(error instanceof Error ? error.message : 'Không thể tải tệp.'); }
+    finally { uploadingRef.current = false; setIsUploading(false); }
   };
 
   return (
     <div className="flex flex-col bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 hover:border-zinc-700 transition-all shadow-sm">
+      <fieldset disabled={isUploading} className="contents">
       <input
         ref={fileInputRef}
         type="file"
@@ -140,7 +92,7 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
               />
               {isAudioOrVoiceSlot && (
                 <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] bg-emerald-500/90 text-zinc-950 font-bold font-mono">
-                  LẤY ÂM THANH VIDEO ✓
+                  VIDEO THAM CHIẾU GIỌNG
                 </div>
               )}
             </div>
@@ -238,6 +190,9 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
           </div>
         </div>
       )}
+      </fieldset>
+      {isUploading && <p role="status" className="text-xs text-amber-300 mt-2">Đang tải tư liệu lên Flow...</p>}
+      {uploadError && <p role="alert" className="text-xs text-red-300 mt-2">{uploadError}</p>}
     </div>
   );
 };

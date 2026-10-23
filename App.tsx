@@ -1,5 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Flow } from 'flow-sdk';
+import type { ReviewSettings } from './types';
+import { parseProject, serializeProject, type Project } from './services/projectStorage';
+import { useProjectAutosave } from './hooks/useProjectAutosave';
+import { mediaPreview, getVoiceReference } from './utils/media';
 import { 
   AppTab, 
   CharacterAttributes, 
@@ -58,6 +62,14 @@ export default function App() {
   const [backgroundAsset, setBackgroundAsset] = useState<MediaAsset | null>(null);
   const [audioVoiceAsset, setAudioVoiceAsset] = useState<MediaAsset | null>(null);
 
+  const [reviewSettings, setReviewSettings] = useState<ReviewSettings>({
+    productAppearance: '', costumeAppearance: '', selectedVoiceRegion: 'south_hcm', selectedVoiceGender: 'female', customVoiceNotes: '',
+  });
+  const [projectError, setProjectError] = useState('');
+  const projectEpoch = useRef(0);
+  const [reviewEpoch, setReviewEpoch] = useState(0);
+  const currentEpoch = projectEpoch.current;
+
   const [productName, setProductName] = useState<string>('');
   const [productDescription, setProductDescription] = useState<string>('');
   const [targetAudience, setTargetAudience] = useState<string>('');
@@ -96,6 +108,30 @@ export default function App() {
   const [clonerCharacterAsset, setClonerCharacterAsset] = useState<MediaAsset | null>(null);
   const [clonerOutfitAsset, setClonerOutfitAsset] = useState<MediaAsset | null>(null);
   const [clonerResolution, setClonerResolution] = useState<'720p' | '360p'>('720p');
+
+  const project = useMemo(() => ({
+    version: 1, productName, productDescription, targetAudience, selectedStyle, selectedVoiceTone,
+    productAsset, modelPersonAsset, costumeAsset, backgroundAsset, audioVoiceAsset, scenes,
+    imageModel: globalImageModel, videoModel: globalVideoModel, aspectRatio: scriptAspectRatio, resolution: scriptResolution,
+    productAppearance: reviewSettings.productAppearance, costumeAppearance: reviewSettings.costumeAppearance,
+    voiceRegion: reviewSettings.selectedVoiceRegion, voiceGender: reviewSettings.selectedVoiceGender, customVoiceNotes: reviewSettings.customVoiceNotes,
+  }), [productName, productDescription, targetAudience, selectedStyle, selectedVoiceTone, productAsset,
+    modelPersonAsset, costumeAsset, backgroundAsset, audioVoiceAsset, scenes, globalImageModel, globalVideoModel,
+    scriptAspectRatio, scriptResolution, reviewSettings]);
+
+  const restoreProject = (saved: Project) => {
+    projectEpoch.current += 1;
+    setReviewEpoch(projectEpoch.current);
+    setProductName(saved.productName); setProductDescription(saved.productDescription); setTargetAudience(saved.targetAudience);
+    setSelectedStyle(saved.selectedStyle); setSelectedVoiceTone(saved.selectedVoiceTone);
+    setProductAsset(saved.productAsset); setModelPersonAsset(saved.modelPersonAsset); setCostumeAsset(saved.costumeAsset);
+    setBackgroundAsset(saved.backgroundAsset); setAudioVoiceAsset(saved.audioVoiceAsset); setScenes(saved.scenes);
+    setGlobalImageModel(saved.imageModel); setGlobalVideoModel(saved.videoModel);
+    setScriptAspectRatio(saved.aspectRatio); setScriptResolution(saved.resolution);
+    setReviewSettings({ productAppearance: saved.productAppearance, costumeAppearance: saved.costumeAppearance,
+      selectedVoiceRegion: saved.voiceRegion, selectedVoiceGender: saved.voiceGender, customVoiceNotes: saved.customVoiceNotes });
+  };
+  const autosave = useProjectAutosave(project, restoreProject);
 
   // ==================== TẠO NHÂN VẬT VỚI GLOBAL IMAGE MODEL ====================
   const handleGenerateCharacter = async () => {
@@ -188,17 +224,10 @@ export default function App() {
     try {
       const media = await Flow.media.select({ filter: filter as any });
       if (media) {
-        let preview = `data:${media.mimeType};base64,${media.base64}`;
-        if (media.type === 'video' || media.mimeType.startsWith('video/')) {
-          const bytes = Uint8Array.from(atob(media.base64), c => c.charCodeAt(0));
-          const blob = new Blob([bytes], { type: media.mimeType });
-          preview = URL.createObjectURL(blob);
-        } else if (media.type === 'audio' || media.mimeType.startsWith('audio/')) {
-          const bytes = Uint8Array.from(atob(media.base64), c => c.charCodeAt(0));
-          const blob = new Blob([bytes], { type: media.mimeType });
-          preview = URL.createObjectURL(blob);
-        }
+        const preview = mediaPreview(media);
+        if (filter === 'all') getVoiceReference({ ...media, name: media.name || 'Voice', previewUrl: preview });
 
+        if (currentEpoch !== projectEpoch.current) return;
         onDone({
           mediaId: media.mediaId,
           base64: media.base64,
@@ -209,22 +238,13 @@ export default function App() {
         });
       }
     } catch (e) {
-      console.error(e);
+      setProjectError(e instanceof Error ? e.message : 'Không thể chọn tư liệu.');
     }
   };
 
   const handleExportScriptJSON = async () => {
     try {
-      const exportData = {
-        productName,
-        productDescription,
-        targetAudience,
-        selectedStyle,
-        selectedVoiceTone,
-        scenes,
-        exportedAt: new Date().toISOString()
-      };
-      const jsonStr = JSON.stringify(exportData, null, 2);
+      const jsonStr = serializeProject(project);
       const bytes = new TextEncoder().encode(jsonStr);
       const base64 = btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''));
       await Flow.download({
@@ -233,7 +253,7 @@ export default function App() {
         filename: `Affiliate_Script_${productName ? productName.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'Draft'}.json`
       });
     } catch (e) {
-      console.error(e);
+      setProjectError('Không thể xuất dự án. Vui lòng thử lại.');
     }
   };
 
@@ -244,29 +264,31 @@ export default function App() {
     input.onchange = (e: any) => {
       const file = e.target.files?.[0];
       if (!file) return;
+      if (file.size > 300 * 1024 * 1024) { setProjectError('Tệp dự án vượt quá 300 MB. Hãy giảm dung lượng tư liệu trước khi nhập.'); return; }
       const reader = new FileReader();
       reader.onload = (event) => {
         try {
           const content = event.target?.result as string;
-          const parsed = JSON.parse(content);
-          if (parsed.scenes && Array.isArray(parsed.scenes)) {
-            setProductName(parsed.productName || productName);
-            setProductDescription(parsed.productDescription || productDescription);
-            setTargetAudience(parsed.targetAudience || targetAudience);
-            setScenes(parsed.scenes);
-            alert('Đã khôi phục thành công kịch bản từ file JSON!');
-          }
+          const saved = parseProject(JSON.parse(content));
+          restoreProject(saved);
+          setProjectError('');
+          alert('Đã khôi phục kịch bản, cấu hình và các tư liệu có trong tệp JSON.');
         } catch {
-          alert('Không thể đọc file JSON kịch bản.');
+          setProjectError('Tệp JSON không đúng cấu trúc dự án hoặc chứa phân cảnh không hợp lệ.');
         }
       };
+      reader.onerror = () => setProjectError('Không đọc được tệp dự án.');
       reader.readAsText(file);
     };
     input.click();
   };
 
+  if (autosave.loading) return <div role="status" className="p-6 bg-zinc-950 text-white">Đang khôi phục dự án...</div>;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-amber-500 selection:text-zinc-950">
+      <div role="status" className="text-xs text-zinc-400 px-4 py-1">{autosave.message}</div>
+      {projectError && <p role="alert" className="px-4 py-2 text-sm text-red-300">{projectError}</p>}
       {/* Top Header Navigation */}
       <header className="border-b border-zinc-800 bg-zinc-900/90 backdrop-blur-md px-3 sm:px-5 py-2.5 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -653,9 +675,12 @@ export default function App() {
         )}
 
         {/* ==================== TAB 2: REVIEW BÁN HÀNG ==================== */}
-        {activeTab === 'product_script' && (
-          <div className="space-y-6 animate-fadeIn">
+        {(
+          <div hidden={activeTab !== 'product_script'} className="space-y-6 animate-fadeIn">
             <ProductScriptStudio
+              key={reviewEpoch}
+              reviewSettings={reviewSettings}
+              onReviewSettingsChange={(value) => { if (currentEpoch === projectEpoch.current) setReviewSettings(value); }}
               productAsset={productAsset}
               modelPersonAsset={modelPersonAsset}
               costumeAsset={costumeAsset}
@@ -671,15 +696,15 @@ export default function App() {
               onClearBackground={() => setBackgroundAsset(null)}
               onSelectAudioVoice={() => handleSelectMedia('all', setAudioVoiceAsset)}
               onClearAudioVoice={() => setAudioVoiceAsset(null)}
-              onSetProductAsset={setProductAsset}
-              onSetModelPersonAsset={setModelPersonAsset}
-              onSetCostumeAsset={setCostumeAsset}
-              onSetBackgroundAsset={setBackgroundAsset}
-              onSetAudioVoiceAsset={setAudioVoiceAsset}
+              onSetProductAsset={(value) => { if (currentEpoch === projectEpoch.current) setProductAsset(value); }}
+              onSetModelPersonAsset={(value) => { if (currentEpoch === projectEpoch.current) setModelPersonAsset(value); }}
+              onSetCostumeAsset={(value) => { if (currentEpoch === projectEpoch.current) setCostumeAsset(value); }}
+              onSetBackgroundAsset={(value) => { if (currentEpoch === projectEpoch.current) setBackgroundAsset(value); }}
+              onSetAudioVoiceAsset={(value) => { if (currentEpoch === projectEpoch.current) setAudioVoiceAsset(value); }}
               productName={productName}
               onProductNameChange={setProductName}
               productDescription={productDescription}
-              onProductDescriptionChange={setProductDescription}
+              onProductDescriptionChange={(value) => { if (currentEpoch === projectEpoch.current) setProductDescription(value); }}
               targetAudience={targetAudience}
               onTargetAudienceChange={setTargetAudience}
               selectedStyle={selectedStyle}
@@ -687,9 +712,9 @@ export default function App() {
               selectedVoiceTone={selectedVoiceTone}
               onVoiceToneChange={setSelectedVoiceTone}
               scenes={scenes}
-              onUpdateScenes={setScenes}
+              onUpdateScenes={(update) => { if (currentEpoch === projectEpoch.current) setScenes(update); }}
               history={scriptHistory}
-              onAddHistory={(entry) => setScriptHistory(prev => [entry, ...prev])}
+              onAddHistory={(entry) => { if (currentEpoch === projectEpoch.current) setScriptHistory(prev => [entry, ...prev]); }}
               onClearHistory={() => setScriptHistory([])}
               selectedImageModel={globalImageModel}
               onImageModelChange={setGlobalImageModel}
@@ -706,7 +731,8 @@ export default function App() {
         )}
 
         {/* ==================== TAB 3: SAO CHÉP CHUYỂN ĐỘNG ==================== */}
-        {activeTab === 'motion_cloner' && (
+        {(
+          <div hidden={activeTab !== 'motion_cloner'}>
           <MotionClonerAuto
             sourceVideoAsset={clonerSourceVideo}
             characterAsset={clonerCharacterAsset}
@@ -717,6 +743,9 @@ export default function App() {
             onClearCharacter={() => setClonerCharacterAsset(null)}
             onSelectOutfit={() => handleSelectMedia('image', setClonerOutfitAsset)}
             onClearOutfit={() => setClonerOutfitAsset(null)}
+            onUploadSourceVideo={setClonerSourceVideo}
+            onUploadCharacter={setClonerCharacterAsset}
+            onUploadOutfit={setClonerOutfitAsset}
             selectedVideoModel={globalVideoModel}
             onVideoModelChange={setGlobalVideoModel}
             selectedImageModel={globalImageModel}
@@ -734,6 +763,7 @@ export default function App() {
               }, ...prev]);
             }}
           />
+          </div>
         )}
       </main>
 

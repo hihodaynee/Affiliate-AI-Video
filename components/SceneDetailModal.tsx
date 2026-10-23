@@ -9,13 +9,17 @@ interface SceneDetailModalProps {
   onSave: (updatedScene: SceneCard) => void;
 }
 
-export const SceneDetailModal: React.FC<SceneDetailModalProps> = ({
+export const SceneDetailModal: React.FC<SceneDetailModalProps> = (props) => {
+  if (!props.isOpen || !props.scene) return null;
+  return <SceneDetailModalContent key={props.scene.id} {...props} scene={props.scene} />;
+};
+
+const SceneDetailModalContent: React.FC<SceneDetailModalProps & { scene: SceneCard }> = ({
   scene,
   isOpen,
   onClose,
   onSave
 }) => {
-  if (!isOpen || !scene) return null;
 
   const [form, setForm] = React.useState<SceneCard>({ ...scene });
 

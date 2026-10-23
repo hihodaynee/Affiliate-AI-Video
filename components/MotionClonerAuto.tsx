@@ -3,6 +3,9 @@ import { MediaAsset } from '../types';
 import { MediaUploader } from './MediaUploader';
 import { MOTION_PRESETS } from '../constants';
 import { Flow } from 'flow-sdk';
+import { generateMotionVideo } from '../services/motionGeneration';
+import { requireRemoteMedia, mediaPreview } from '../utils/media';
+import { withTimeout } from '../utils/async';
 
 interface MotionClonerAutoProps {
   sourceVideoAsset: MediaAsset | null;
@@ -15,6 +18,9 @@ interface MotionClonerAutoProps {
   onClearCharacter: () => void;
   onSelectOutfit: () => void;
   onClearOutfit: () => void;
+  onUploadSourceVideo?: (asset: MediaAsset) => void;
+  onUploadCharacter?: (asset: MediaAsset) => void;
+  onUploadOutfit?: (asset: MediaAsset) => void;
 
   selectedVideoModel: string;
   onVideoModelChange: (model: string) => void;
@@ -44,6 +50,9 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
   onClearCharacter,
   onSelectOutfit,
   onClearOutfit,
+  onUploadSourceVideo,
+  onUploadCharacter,
+  onUploadOutfit,
   selectedVideoModel,
   selectedImageModel,
   resolution,
@@ -67,7 +76,9 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
   const [autoEnhanceQuality, setAutoEnhanceQuality] = useState<boolean>(true);
   const [downloadState, setDownloadState] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle');
 
-  const renderTimerRef = useRef<any>(null);
+  const renderTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const runningRef = useRef(false);
+  const [resultMode, setResultMode] = useState<typeof reenactmentMode>('v2v_edit');
 
   useEffect(() => {
     return () => {
@@ -92,7 +103,9 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
   };
 
   const handleRunAutoPipeline = async () => {
-    if (!sourceVideoAsset || !characterAsset) return;
+    if (!sourceVideoAsset || !characterAsset || runningRef.current) return;
+    runningRef.current = true;
+    setIntermediateFittedChar(null); setResultVideo(null); setMotionAnalysis('');
 
     if (renderTimerRef.current) clearInterval(renderTimerRef.current);
     setElapsedRenderSeconds(0);
@@ -102,6 +115,8 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
     setStatusMessage('Đang phân tích cử chỉ, vóc dáng và góc máy chuyển động từ video mẫu...');
 
     try {
+      requireRemoteMedia(characterAsset, 'Ảnh nhân vật');
+      if (outfitAsset) requireRemoteMedia(outfitAsset, 'Ảnh trang phục');
       let detectedMotionDescription = '';
       try {
         const analysisPrompt = 
@@ -109,10 +124,10 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
           'Nhân vật đang làm gì (bước đi catwalk, dạo phố, quay người, khiêu vũ...)? ' +
           'Hãy viết thành 1 câu chỉ dẫn chuyển động tiếng Anh ngắn gọn, rõ ràng (dưới 30 từ) để áp dụng cho AI video reenactment.';
 
-        const aiAnalysis = await Flow.generate.text(analysisPrompt, {
+        const aiAnalysis = await withTimeout(Flow.generate.text(analysisPrompt, {
           videos: [{ base64: sourceVideoAsset.base64, mimeType: sourceVideoAsset.mimeType, fps: 1 }],
           systemInstruction: 'You are an expert motion capture analyst. Return a concise, vivid English motion directive.'
-        });
+        }));
 
         if (aiAnalysis && aiAnalysis.text && aiAnalysis.text.trim()) {
           detectedMotionDescription = aiAnalysis.text.trim();
@@ -142,12 +157,12 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
             'Masterpiece commercial fashion photo. Seamlessly dress the person from reference 1 with the exact clothing design, fabric textures, colors and accessories from reference 2. ' +
             'Maintain 100% facial features, identity, hairstyle and body shape identical to reference 1. Pristine studio lighting, clean background, 8k commercial photography.';
 
-          const fittedImageResult = await Flow.generate.image({
+          const fittedImageResult = await withTimeout(Flow.generate.image({
             prompt: fitPrompt,
             referenceImageMediaIds: [characterAsset.mediaId, outfitAsset.mediaId],
             modelDisplayName: selectedImageModel,
             aspectRatio: '9:16'
-          });
+          }));
 
           const fittedAsset: MediaAsset = {
             mediaId: fittedImageResult.mediaId,
@@ -160,7 +175,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
           setIntermediateFittedChar(fittedAsset);
           readyCharacterMediaId = fittedAsset.mediaId;
         } catch (fitErr: any) {
-          console.warn('Ghép trang phục thất bại, tiếp tục dùng ảnh nhân vật gốc:', fitErr);
+          throw new Error('Không thể ghép trang phục đã chọn. Hãy thử lại hoặc bỏ ảnh trang phục trước khi tiếp tục.');
         }
       }
 
@@ -194,39 +209,8 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
         `Subject Identity: The character must have the exact face, skin tone, hair, and clothing from the reference image without morphing or distortion. ` +
         `${autoEnhanceQuality ? 'High-end cinema lighting, sharp motion blur, consistent frame continuity, pristine commercial master quality.' : ''}`;
 
-      let videoResult: any = null;
-
-      if (reenactmentMode === 'v2v_edit') {
-        try {
-          videoResult = await Flow.generate.video({
-            prompt: finalPrompt,
-            sourceVideoMediaId: sourceVideoAsset.mediaId,
-            sourceVideoMode: 'edit',
-            referenceImageMediaIds: [readyCharacterMediaId],
-            modelDisplayName: selectedVideoModel
-          });
-        } catch (v2vError: any) {
-          console.warn('V2V edit mode failed, attempting fallback to R2V Motion Reenactment:', v2vError);
-          setStatusMessage('Chuyển đổi phương thức sao chép chuyển động để khắc phục lỗi tương thích video...');
-          videoResult = await Flow.generate.video({
-            prompt: finalPrompt,
-            referenceImageMediaIds: [readyCharacterMediaId],
-            durationSeconds: 6,
-            aspectRatio: '9:16',
-            resolution: resolution,
-            modelDisplayName: selectedVideoModel
-          });
-        }
-      } else {
-        videoResult = await Flow.generate.video({
-          prompt: finalPrompt,
-          referenceImageMediaIds: [readyCharacterMediaId],
-          durationSeconds: 8,
-          aspectRatio: '9:16',
-          resolution: resolution,
-          modelDisplayName: selectedVideoModel
-        });
-      }
+      const videoResult = await generateMotionVideo({ mode: reenactmentMode, source: sourceVideoAsset,
+        characterId: readyCharacterMediaId, prompt: finalPrompt, model: selectedVideoModel, resolution });
 
       if (renderTimerRef.current) clearInterval(renderTimerRef.current);
 
@@ -234,9 +218,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
         throw new Error('Hệ thống không nhận được dữ liệu video trả về.');
       }
 
-      const bytes = Uint8Array.from(atob(videoResult.base64), c => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: videoResult.mimeType || 'video/mp4' });
-      const videoBlobUrl = URL.createObjectURL(blob);
+      const videoBlobUrl = mediaPreview(videoResult);
 
       const generatedAsset: MediaAsset = {
         mediaId: videoResult.mediaId,
@@ -247,11 +229,12 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
         previewUrl: videoBlobUrl
       };
 
+      setResultMode(reenactmentMode);
       setResultVideo(generatedAsset);
       onAddResultVideo(generatedAsset);
       setProgressPercent(100);
       setPipelineStage('completed');
-      setStatusMessage('Thành công! Video đã sao chép chuyển động hoàn chỉnh và được tự động lưu vào Gallery.');
+      setStatusMessage(reenactmentMode === 'v2v_edit' ? 'Đã tạo video từ video mẫu. Hãy kiểm tra chuyển động trong kết quả.' : 'Đã tạo video mô phỏng từ ảnh và mô tả. Chế độ này không giữ chính xác chuyển động của video mẫu.');
 
     } catch (err: any) {
       if (renderTimerRef.current) clearInterval(renderTimerRef.current);
@@ -265,6 +248,9 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
         friendlyError = 'Quá trình render bị gián đoạn mạng hoặc hết thời gian chờ. Bạn có thể bấm thử lại với độ phân giải 360p để xử lý nhanh hơn.';
       }
       setErrorMessage(friendlyError);
+    } finally {
+      runningRef.current = false;
+      if (renderTimerRef.current) clearInterval(renderTimerRef.current);
     }
   };
 
@@ -405,6 +391,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
                     filter="video"
                     onSelect={onSelectSourceVideo}
                     onClear={onClearSourceVideo}
+                    onUploadFile={onUploadSourceVideo}
                   />
                 </div>
               </div>
@@ -426,6 +413,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
                     filter="image"
                     onSelect={onSelectCharacter}
                     onClear={onClearCharacter}
+                    onUploadFile={onUploadCharacter}
                   />
                 </div>
               </div>
@@ -443,6 +431,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
                     filter="image"
                     onSelect={onSelectOutfit}
                     onClear={onClearOutfit}
+                    onUploadFile={onUploadOutfit}
                   />
                 </div>
               </div>
@@ -507,7 +496,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
                       <span className="material-symbols-outlined text-amber-400 text-xs">tune</span>
                       Chế Độ Sao Chép Chuyển Động:
                     </label>
-                    <span className="text-[10px] text-zinc-500">Khắc phục lỗi đứng hình</span>
+                    <span className="text-[10px] text-zinc-500">Chọn cách tạo video</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <button
@@ -520,7 +509,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
                       }`}
                     >
                       <div className="text-xs font-bold">1. Video-to-Video Edit (Mặc định)</div>
-                      <div className="text-[10px] text-zinc-400 mt-0.5">Khớp 100% từng khung hình của video mẫu (yêu cầu video dưới 10s).</div>
+                      <div className="text-[10px] text-zinc-400 mt-0.5">Dùng video mẫu làm đầu vào chỉnh sửa; cần kiểm tra độ khớp chuyển động (yêu cầu video dưới 10s).</div>
                     </button>
 
                     <button
@@ -701,7 +690,7 @@ export const MotionClonerAuto: React.FC<MotionClonerAutoProps> = ({
                 </button>
 
                 <p className="text-[10px] text-center text-zinc-500">
-                  Video đã được tự động lưu vào Thư Viện Media Gallery của Google Flow.
+                  {resultMode === 'v2v_edit' ? 'Kết quả dùng video mẫu làm đầu vào.' : 'Kết quả mô phỏng từ ảnh và mô tả, không sao chép chính xác video mẫu.'}
                 </p>
               </div>
             )}

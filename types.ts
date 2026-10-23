@@ -1,6 +1,7 @@
 export type AppTab = 'character_studio' | 'product_script' | 'motion_cloner';
 
 export type ToolMode = 'product_script' | 'motion_cloner';
+export type StepKey = 'step1_character' | 'step2_motion';
 
 export type Gender = 'female' | 'male' | 'non-binary';
 
@@ -74,6 +75,14 @@ export type VoiceRegion =
   | 'central_hue_danang';
 
 export type VoiceGender = 'female' | 'male';
+
+export interface ReviewSettings {
+  productAppearance: string;
+  costumeAppearance: string;
+  selectedVoiceRegion: VoiceRegion;
+  selectedVoiceGender: VoiceGender;
+  customVoiceNotes: string;
+}
 
 export interface VoiceProfileConfig {
   region: VoiceRegion;

@@ -16,13 +16,17 @@ const QUICK_REASONS = [
   { id: 'camera_angle', label: 'Góc quay chưa đủ hấp dẫn', promptFix: 'Dynamic high-end commercial cinematography, smooth camera dolly, shallow depth of field.' }
 ];
 
-export const RegenerateFeedbackModal: React.FC<RegenerateFeedbackModalProps> = ({
+export const RegenerateFeedbackModal: React.FC<RegenerateFeedbackModalProps> = (props) => {
+  if (!props.isOpen || !props.scene) return null;
+  return <RegenerateFeedbackModalContent key={props.scene.id} {...props} scene={props.scene} />;
+};
+
+const RegenerateFeedbackModalContent: React.FC<RegenerateFeedbackModalProps & { scene: SceneCard }> = ({
   scene,
   isOpen,
   onClose,
   onSubmit
 }) => {
-  if (!isOpen || !scene) return null;
 
   const [selectedReason, setSelectedReason] = useState<string>(QUICK_REASONS[0].id);
   const [customFeedback, setCustomFeedback] = useState<string>('');

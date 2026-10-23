@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SceneCard, MediaAsset } from '../types';
-import { ffmpegService } from '../services/ffmpegService';
+import { FFmpegService } from '../services/ffmpegService';
 import { Flow } from 'flow-sdk';
+import { buildConcatArgs } from '../utils/concat';
+import { mediaPreview } from '../utils/media';
 
 interface VideoConcatenatorTimelineProps {
   scenes: SceneCard[];
+  aspectRatio: '9:16' | '16:9';
   isOpen: boolean;
   onClose: () => void;
   onSaveMergedVideo: (mergedAsset: MediaAsset) => void;
@@ -12,11 +15,12 @@ interface VideoConcatenatorTimelineProps {
 
 export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps> = ({
   scenes,
+  aspectRatio,
   isOpen,
   onClose,
   onSaveMergedVideo
 }) => {
-  if (!isOpen) return null;
+
 
   // Lấy các phân cảnh đã có video
   const availableClips = scenes
@@ -38,13 +42,22 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
   const [mergedVideoAsset, setMergedVideoAsset] = useState<MediaAsset | null>(null);
   const [audioPreserveMode, setAudioPreserveMode] = useState<'with_audio' | 'video_only'>('with_audio');
 
+  const ffmpegRef = useRef<FFmpegService | null>(null);
+  if (!ffmpegRef.current) ffmpegRef.current = new FFmpegService();
+  const ffmpegService = ffmpegRef.current;
+  useEffect(() => () => ffmpegService.dispose(), [ffmpegService]);
+
   const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    setClipOrder(availableClips);
+    if (!isConcatenating) { setClipOrder(availableClips); setActivePreviewIndex(0); }
   }, [scenes]);
 
   const totalDuration = clipOrder.reduce((acc, c) => acc + c.duration, 0);
+
+  useEffect(() => {
+    if (isPlayingSequence) videoPlayerRef.current?.play().catch(() => setIsPlayingSequence(false));
+  }, [activePreviewIndex, isPlayingSequence]);
 
   const handleVideoEnded = () => {
     if (isPlayingSequence) {
@@ -63,7 +76,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
       videoPlayerRef.current?.pause();
     } else {
       setIsPlayingSequence(true);
-      videoPlayerRef.current?.play();
+      videoPlayerRef.current?.play().catch(() => setIsPlayingSequence(false));
     }
   };
 
@@ -85,8 +98,9 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
    * 4. Bọc toàn diện trong try/catch/finally với giải phóng bộ nhớ ảo.
    */
   const handleConcatenateVideos = async () => {
-    if (clipOrder.length === 0) return;
+    if (clipOrder.length === 0 || isConcatenating) return;
     setIsConcatenating(true);
+    setMergedVideoAsset(null);
     setErrorMessage(null);
     setConcatProgress('Khởi động lõi xử lý FFmpeg WASM...');
 
@@ -108,76 +122,8 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
       }
 
       setConcatProgress(`Đang chuẩn bị ghép nối ${clipOrder.length} clip...`);
-      const inputArgs: string[] = [];
-      fileNames.forEach(name => inputArgs.push('-i', name));
-
-      let concatSucceeded = false;
-
-      // CHIẾN LƯỢC 1: Ghép kèm âm thanh (nếu chọn with_audio)
-      if (audioPreserveMode === 'with_audio') {
-        try {
-          setConcatProgress(`Đang ghép ${clipOrder.length} clip & hòa âm AAC chất lượng cao...`);
-
-          // Chuẩn hóa tỷ lệ khung hình và framerate để các clip khác nhau không làm vỡ stream
-          // [i:v]scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v{i}]
-          const videoFilterParts = fileNames.map((_, i) => 
-            `[${i}:v]scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v${i}]`
-          ).join(';');
-
-          const audioFilterParts = fileNames.map((_, i) => 
-            `[${i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`
-          ).join(';');
-
-          const concatInputs = fileNames.map((_, i) => `[v${i}][a${i}]`).join('');
-          const filterComplex = `${videoFilterParts};${audioFilterParts};${concatInputs}concat=n=${fileNames.length}:v=1:a=1[outv][outa]`;
-
-          await ffmpegService.exec([
-            ...inputArgs,
-            '-filter_complex', filterComplex,
-            '-map', '[outv]',
-            '-map', '[outa]',
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-crf', '24',
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-pix_fmt', 'yuv420p',
-            '-movflags', 'faststart',
-            '-y', 'merged_output.mp4',
-          ]);
-
-          concatSucceeded = true;
-        } catch (audioConcatErr: any) {
-          console.warn('Ghép kèm âm thanh đồng bộ thất bại (do clip thiếu audio track hoặc codec không khớp). Đang tự động chuyển sang chế độ chuẩn hóa an toàn:', audioConcatErr);
-          setConcatProgress('Một số clip không có luồng âm thanh hoặc sample rate lệch. Tự động chuyển chế độ ghép hình ảnh đồng bộ...');
-        }
-      }
-
-      // CHIẾN LƯỢC 2: Fallback an toàn (ghép luồng video chuẩn hóa, đảm bảo 100% không bao giờ crash kể cả 5 clip khác nhau)
-      if (!concatSucceeded) {
-        setConcatProgress(`Đang ghép chuẩn hóa ${clipOrder.length} video (24fps, 720p)...`);
-
-        const videoFilterParts = fileNames.map((_, i) => 
-          `[${i}:v]scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v${i}]`
-        ).join(';');
-
-        const concatInputs = fileNames.map((_, i) => `[v${i}]`).join('');
-        const filterComplex = `${videoFilterParts};${concatInputs}concat=n=${fileNames.length}:v=1:a=0[outv]`;
-
-        await ffmpegService.exec([
-          ...inputArgs,
-          '-filter_complex', filterComplex,
-          '-map', '[outv]',
-          '-c:v', 'libx264',
-          '-preset', 'ultrafast',
-          '-crf', '24',
-          '-pix_fmt', 'yuv420p',
-          '-movflags', 'faststart',
-          '-an',
-          '-y', 'merged_output.mp4',
-        ]);
-        concatSucceeded = true;
-      }
+      setConcatProgress('Đang ghép video, giữ tỷ lệ khung hình đã chọn...');
+      await ffmpegService.exec(buildConcatArgs(fileNames, aspectRatio, audioPreserveMode === 'with_audio'));
 
       setConcatProgress('Đang đọc video hoàn chỉnh từ bộ nhớ ảo...');
       const outputData = await ffmpegService.readFile('merged_output.mp4') as Uint8Array;
@@ -185,8 +131,8 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
         throw new Error('Dữ liệu video sau khi ghép rỗng.');
       }
 
-      const blob = new Blob([outputData.buffer], { type: 'video/mp4' });
-      const blobUrl = URL.createObjectURL(blob);
+      const blob = new Blob([new Uint8Array(outputData)], { type: 'video/mp4' });
+
 
       // Chuyển sang base64 an toàn qua FileReader (tránh call stack limit)
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -206,7 +152,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
         mimeType: 'video/mp4',
         name: `Video_Review_Full_5_Canh_${Date.now()}`,
         type: 'video',
-        previewUrl: blobUrl
+        previewUrl: mediaPreview({base64, mimeType: 'video/mp4'})
       };
 
       setMergedVideoAsset(mergedAsset);
@@ -228,6 +174,8 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
   };
 
   const currentPreviewClip = clipOrder[activePreviewIndex];
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-fadeIn">
@@ -276,17 +224,18 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                     ? 'bg-amber-500 text-zinc-950 font-bold'
                     : 'text-zinc-400 hover:text-white'
                 }`}
-                title="Chỉ ghép hình ảnh (an toàn tuyệt đối)"
+                title="Chỉ ghép hình ảnh (bỏ âm thanh)"
               >
                 <span className="flex items-center gap-1">
                   <span className="material-symbols-outlined text-xs">volume_off</span>
-                  <span>Không tiếng (An toàn)</span>
+                  <span>Không tiếng</span>
                 </span>
               </button>
             </div>
 
             <button
-              onClick={onClose}
+              disabled={isConcatenating}
+            onClick={onClose}
               className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               <span className="material-symbols-outlined text-xl">close</span>
@@ -437,7 +386,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                   <div className="flex items-center justify-between pt-1 border-t border-zinc-850">
                     <button
                       type="button"
-                      disabled={idx === 0}
+                      disabled={isConcatenating || idx === 0}
                       onClick={(e) => {
                         e.stopPropagation();
                         moveClip(idx, 'left');
@@ -450,7 +399,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                     <span className="text-[9px] text-zinc-500 font-mono">Vị trí {idx + 1}</span>
                     <button
                       type="button"
-                      disabled={idx === clipOrder.length - 1}
+                      disabled={isConcatenating || idx === clipOrder.length - 1}
                       onClick={(e) => {
                         e.stopPropagation();
                         moveClip(idx, 'right');
@@ -471,6 +420,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
         <div className="pt-3 flex gap-2">
           <button
             type="button"
+            disabled={isConcatenating}
             onClick={onClose}
             className="py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
           >
