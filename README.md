@@ -1,6 +1,11 @@
 # Affiliate AI Video
 
-Bộ công cụ tạo KOC, kịch bản review và video trên Google Flow. Phiên bản 1.1 bổ sung các sửa lỗi về tham chiếu voice, tạo nội dung, ghép video và lưu dự án.
+Bộ công cụ tạo KOC, kịch bản review và video trên Google Flow. Phiên bản 1.2 thêm **ASMR Review** độc lập: bắt đầu từ một ảnh, AI tự thiết kế kịch bản và thời lượng, tùy chọn giọng review xen kẽ với tiếng thao tác. Các sửa lỗi độ ổn định của phiên bản 1.1 được giữ lại.
+
+- [Phân tích clip mẫu, đầu vào và hướng dẫn ASMR](docs/asmr-review.md).
+- Trong tab **ASMR Review**, thêm ảnh → chọn có/không lời review → AI viết kịch bản → sửa nếu cần → tạo clip → nghe kiểm tra → ghép giữ tiếng.
+- Không mặc định tổng thời lượng hoặc số cảnh. AI chọn theo sản phẩm trong giới hạn của model tạo video. Chất liệu, thao tác thực tế và ảnh góc khác là đầu vào tùy chọn để tăng độ chính xác.
+- ASMR có model, IndexedDB và JSON riêng; không đọc giọng/KOC/kịch bản của Review Bán Hàng.
 
 - [Mở công cụ gốc trên Google Flow](https://flow.google.com/project/a2a91d8d-800e-4980-bb48-8987eccf39d8/tool/ed2a429c-065e-4aa9-907b-130f9f478b41?fromViewSource=tools&mode=EDIT).
 - Bản xuất gốc gồm 29 tệp, được lưu tại commit [`4870e02`](https://github.com/hihodaynee/Affiliate-AI-Video/commit/4870e02c4bd3b7c29e8cea39c11aae31425fea66).

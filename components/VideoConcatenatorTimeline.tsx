@@ -11,6 +11,8 @@ interface VideoConcatenatorTimelineProps {
   isOpen: boolean;
   onClose: () => void;
   onSaveMergedVideo: (mergedAsset: MediaAsset) => void;
+  requireAudio?: boolean;
+  preserveOrder?: boolean;
 }
 
 export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps> = ({
@@ -18,7 +20,9 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
   aspectRatio,
   isOpen,
   onClose,
-  onSaveMergedVideo
+  onSaveMergedVideo,
+  requireAudio = false,
+  preserveOrder = false
 }) => {
 
 
@@ -81,6 +85,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
   };
 
   const moveClip = (index: number, direction: 'left' | 'right') => {
+    if (preserveOrder) return;
     const newIdx = direction === 'left' ? index - 1 : index + 1;
     if (newIdx < 0 || newIdx >= clipOrder.length) return;
     const updated = [...clipOrder];
@@ -123,7 +128,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
 
       setConcatProgress(`Đang chuẩn bị ghép nối ${clipOrder.length} clip...`);
       setConcatProgress('Đang ghép video, giữ tỷ lệ khung hình đã chọn...');
-      await ffmpegService.exec(buildConcatArgs(fileNames, aspectRatio, audioPreserveMode === 'with_audio'));
+      await ffmpegService.exec(buildConcatArgs(fileNames, aspectRatio, requireAudio || audioPreserveMode === 'with_audio'));
 
       setConcatProgress('Đang đọc video hoàn chỉnh từ bộ nhớ ảo...');
       const outputData = await ffmpegService.readFile('merged_output.mp4') as Uint8Array;
@@ -150,7 +155,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
         mediaId: `merged_${Date.now()}`,
         base64,
         mimeType: 'video/mp4',
-        name: `Video_Review_Full_5_Canh_${Date.now()}`,
+        name: `Video_${requireAudio ? 'ASMR' : 'Review'}_${clipOrder.length}_Canh_${Date.now()}`,
         type: 'video',
         previewUrl: mediaPreview({base64, mimeType: 'video/mp4'})
       };
@@ -159,9 +164,9 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
       onSaveMergedVideo(mergedAsset);
       setConcatProgress(`Ghép thành công trọn vẹn ${clipOrder.length} clip (${totalDuration}s)! Đã sẵn sàng tải về.`);
     } catch (err: any) {
-      console.error('Lỗi khi ghép nối 5 clip:', err);
+      console.error('Lỗi khi ghép clip:', err);
       const errMsg = err instanceof Error ? err.message : String(err || '');
-      setErrorMessage(`Quá trình ghép gặp sự cố: ${errMsg}. Mẹo: Hãy thử chọn chế độ "Không tiếng" phía trên hoặc kiểm tra các clip.`);
+      setErrorMessage(`Quá trình ghép gặp sự cố: ${errMsg}. ${requireAudio ? 'ASMR cần âm thanh. Hãy kiểm tra hoặc tạo lại clip thiếu tiếng trước khi ghép.' : 'Hãy kiểm tra các clip hoặc chọn chế độ Không tiếng.'}`);
       setConcatProgress('Ghép thất bại. Vui lòng thử lại.');
     } finally {
       // Dọn dẹp an toàn các tệp tạm trong virtual filesystem
@@ -194,7 +199,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                 </span>
               </div>
               <p className="text-xs text-zinc-400">
-                Sắp xếp thứ tự phân cảnh, chuẩn hóa tỷ lệ và xuất video trọn vẹn ({totalDuration} giây)
+                {preserveOrder ? 'Giữ thứ tự kịch bản và nhịp lời review xen kẽ, chuẩn hóa tỷ lệ' : 'Sắp xếp thứ tự phân cảnh, chuẩn hóa tỷ lệ'} và xuất video trọn vẹn ({totalDuration} giây)
               </p>
             </div>
           </div>
@@ -218,6 +223,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
               </button>
               <button
                 type="button"
+                hidden={requireAudio}
                 onClick={() => setAudioPreserveMode('video_only')}
                 className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                   audioPreserveMode === 'video_only'
@@ -292,9 +298,9 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
 
               {currentPreviewClip && (
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-zinc-400 block">Lời thoại KOC:</label>
+                  <label className="text-[11px] font-semibold text-zinc-400 block">{requireAudio ? 'Lời review / ASMR:' : 'Lời thoại KOC:'}</label>
                   <p className="text-xs text-zinc-200 bg-zinc-950 p-2.5 rounded-xl border border-zinc-850 leading-relaxed italic">
-                    &ldquo;{currentPreviewClip.dialogue}&rdquo;
+                    {currentPreviewClip.dialogue ? `“${currentPreviewClip.dialogue}”` : requireAudio ? 'ASMR thuần · chỉ tiếng thao tác' : ''}
                   </p>
                 </div>
               )}
@@ -386,7 +392,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                   <div className="flex items-center justify-between pt-1 border-t border-zinc-850">
                     <button
                       type="button"
-                      disabled={isConcatenating || idx === 0}
+                      disabled={preserveOrder || isConcatenating || idx === 0}
                       onClick={(e) => {
                         e.stopPropagation();
                         moveClip(idx, 'left');
@@ -399,7 +405,7 @@ export const VideoConcatenatorTimeline: React.FC<VideoConcatenatorTimelineProps>
                     <span className="text-[9px] text-zinc-500 font-mono">Vị trí {idx + 1}</span>
                     <button
                       type="button"
-                      disabled={isConcatenating || idx === clipOrder.length - 1}
+                      disabled={preserveOrder || isConcatenating || idx === clipOrder.length - 1}
                       onClick={(e) => {
                         e.stopPropagation();
                         moveClip(idx, 'right');

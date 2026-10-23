@@ -1,4 +1,4 @@
-export type AppTab = 'character_studio' | 'product_script' | 'motion_cloner';
+export type AppTab = 'character_studio' | 'product_script' | 'motion_cloner' | 'asmr_review';
 
 export type ToolMode = 'product_script' | 'motion_cloner';
 export type StepKey = 'step1_character' | 'step2_motion';

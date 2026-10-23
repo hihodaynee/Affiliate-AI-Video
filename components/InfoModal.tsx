@@ -27,7 +27,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold tracking-tight text-white">Affiliate AI Video</h2>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                v1.0
+                v1.2
               </span>
             </div>
             <p className="text-xs text-amber-400 font-mono font-medium truncate">by hitechmmo • Bộ công cụ sản xuất video AI Affiliate tự động</p>
@@ -115,7 +115,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
           onClick={onClose}
           className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-bold rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
         >
-          <span>Khám Phá Affiliate AI Video v1.0</span>
+          <span>Khám Phá Affiliate AI Video v1.2</span>
           <span className="material-symbols-outlined text-sm font-bold">arrow_forward</span>
         </button>
       </div>
